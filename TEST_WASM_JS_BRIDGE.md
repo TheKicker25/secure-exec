@@ -717,6 +717,282 @@ Hello from WASIX module!
 
 this confirms the approach: **build custom WASM modules that use WASIX for I/O and bridge.* for JS callbacks**.
 
+## 13. test shell calling node
+
+test what happens when bash tries to call `node` from within @wasmer/sdk.
+
+create `test13-shell-calls-node.ts`:
+
+```typescript
+import { init, Wasmer, Directory } from "@wasmer/sdk/node";
+
+async function main(): Promise<void> {
+  await init();
+
+  const dir = new Directory();
+  await dir.writeFile("/test.sh", `#!/bin/bash
+echo "About to call node..."
+node -e "console.log('Hello from Node!')"
+echo "Done"
+`);
+
+  const bashPkg = await Wasmer.fromRegistry("sharrattj/bash");
+
+  // Test 13a: Run test.sh
+  const instance = await bashPkg.entrypoint!.run({
+    args: ["/app/test.sh"],
+    mount: { "/app": dir },
+  });
+
+  // Test 13d: Mount fake /usr/bin/node
+  const binDir = new Directory();
+  await binDir.writeFile("/node", `#!/bin/bash
+echo "[INTERCEPTED] node called with args: $@"
+`);
+
+  const instance2 = await bashPkg.entrypoint!.run({
+    args: ["-c", "chmod +x /usr/bin/node && /usr/bin/node script.js"],
+    mount: { "/app": dir, "/usr/bin": binDir },
+  });
+}
+```
+
+**result**: PARTIAL
+
+| test | result |
+|------|--------|
+| bash reports "node: command not found" | works (graceful error) |
+| mounting fake /usr/bin/node | hangs on exec (no coreutils for chmod) |
+| using `source /script` | times out |
+
+**conclusion**: bash can report missing commands but cannot exec external binaries through WASIX.
+
+---
+
+## 14. test `uses` option for package dependencies
+
+test the `uses` option which includes other Wasmer packages as available commands.
+
+create `test14-uses-packages.ts`:
+
+```typescript
+import { init, Wasmer, Directory } from "@wasmer/sdk/node";
+
+async function main(): Promise<void> {
+  await init();
+
+  const dir = new Directory();
+  const bashPkg = await Wasmer.fromRegistry("sharrattj/bash");
+
+  // Test 14a: WITHOUT uses (ls/cat won't work)
+  const instance1 = await bashPkg.entrypoint!.run({
+    args: ["-c", "ls /app"],
+    mount: { "/app": dir },
+  });
+  // Result: ls: command not found
+
+  // Test 14b: WITH uses
+  const instance2 = await bashPkg.entrypoint!.run({
+    args: ["-c", "ls /app && cat /app/hello.txt"],
+    mount: { "/app": dir },
+    uses: ["sharrattj/coreutils"],
+  });
+  // Result: WORKS! ls and cat available
+
+  // Test 14c: multiple packages
+  const instance3 = await bashPkg.entrypoint!.run({
+    args: ["-c", "echo hello | cowsay"],
+    uses: ["sharrattj/coreutils", "cowsay"],
+  });
+  // Result: cowsay works!
+
+  // Test 14e: check for node package
+  await Wasmer.fromRegistry("wasmer/node"); // Not found
+}
+```
+
+**result**: PASS
+
+| test | result |
+|------|--------|
+| bash without uses | ls/cat not found |
+| bash with uses: coreutils | ls, cat, etc. all work |
+| bash with uses: coreutils + cowsay | both packages available |
+| node package in registry | NOT FOUND |
+
+**key insight**: the `uses` option injects packages into the WASM environment, making their commands available. However, there is no `node` package in the Wasmer registry.
+
+---
+
+## 15. test Wasmer.createPackage and Wasmer.fromFile
+
+test programmatic package creation and loading local .webc files.
+
+create `test15-local-package.ts`:
+
+```typescript
+import { init, Wasmer } from "@wasmer/sdk/node";
+import * as fs from "fs/promises";
+
+async function main(): Promise<void> {
+  await init();
+
+  // Test 15b: createPackage with bash dependency
+  const manifest = {
+    command: [{
+      module: "sharrattj/bash:bash",
+      name: "run",
+      runner: "https://webc.org/runner/wasi",
+      annotations: { wasi: { "main-args": ["/src/run.sh"] } },
+    }],
+    dependencies: {
+      "sharrattj/bash": "*",
+      "sharrattj/coreutils": "*",
+    },
+    fs: {
+      "/src": { "run.sh": "#!/bin/bash\necho Hello\nls -la" },
+    },
+  };
+
+  const pkg = await Wasmer.createPackage(manifest);
+  // Result: WORKS! Creates package with all coreutils commands
+
+  // Test 15d: Load custom .webc file
+  const webcBytes = await fs.readFile("custom-node-pkg/test-custom-node-0.1.0.webc");
+  const localPkg = await Wasmer.fromFile(webcBytes);
+  // Result: WORKS! Loads package with our custom 'node' command
+}
+```
+
+**result**: PASS
+
+| test | result |
+|------|--------|
+| Wasmer.createPackage with dependencies | WORKS - creates package with merged commands |
+| Wasmer.fromFile with .webc | WORKS - loads local packages |
+| Running custom command from .webc | WORKS - our stub node command runs |
+
+**key insight**:
+- `Wasmer.createPackage()` references existing registry packages via `module: "namespace/package:command"`
+- `Wasmer.fromFile()` loads .webc packages built with the wasmer CLI
+- Dependencies are resolved and commands are merged into the package
+
+---
+
+## 16. test custom .webc package with bridge commands
+
+build and load a custom .webc package that includes our node-bridge stub.
+
+### building the package
+
+1. Create `custom-node-pkg/wasmer.toml`:
+```toml
+[package]
+name = "test/custom-node"
+version = "0.1.0"
+description = "Custom node bridge package"
+
+[dependencies]
+"sharrattj/coreutils" = "1.0.16"
+
+[[module]]
+name = "node-bridge"
+source = "node-bridge.wasm"
+abi = "wasi"
+
+[[command]]
+name = "node"
+module = "node-bridge"
+runner = "wasi"
+```
+
+2. Create `node-bridge.wat` and compile to .wasm:
+```wat
+(module
+  (import "wasi_snapshot_preview1" "fd_write" ...)
+  (import "wasi_snapshot_preview1" "proc_exit" ...)
+
+  (memory (export "memory") 1)
+  (data (i32.const 0) "[node-bridge] Stub for Node.js\n")
+
+  (func (export "_start")
+    ;; write message and exit
+  )
+)
+```
+
+3. Build with wasmer CLI:
+```bash
+wasmer package build
+```
+
+### loading the package
+
+create `test16-fromfile-debug.ts`:
+
+```typescript
+import { init, Wasmer } from "@wasmer/sdk/node";
+import * as fs from "fs/promises";
+
+async function main(): Promise<void> {
+  await init();
+
+  const webcBytes = await fs.readFile("custom-node-pkg/test-custom-node-0.1.0.webc");
+  const pkg = await Wasmer.fromFile(webcBytes);
+
+  console.log("Commands:", Object.keys(pkg.commands));
+  // Output: arch, base32, ..., node, ..., wc, who, whoami
+
+  // Run our custom node command
+  const instance = await pkg.commands["node"].run({});
+  const result = await instance.wait();
+  console.log("Stdout:", result.stdout);
+  // Output: [node-bridge] This is a stub for Node.js execution
+  //         [node-bridge] Would forward to real Node.js here
+}
+```
+
+**result**: PASS
+
+| test | result |
+|------|--------|
+| Build custom .webc with wasmer CLI | WORKS |
+| Load with Wasmer.fromFile() | WORKS |
+| Custom command appears in package | WORKS (merged with coreutils) |
+| Run custom node command | WORKS |
+
+**key insight**: we can build custom packages with the wasmer CLI that include:
+- Our own WASM modules (node-bridge.wasm)
+- Dependencies on registry packages (coreutils)
+- The commands from both are merged
+
+**limitation**: the custom WASM still runs through @wasmer/sdk's WASIX runtime, so we CANNOT inject custom bridge imports (like `bridge.spawn_node`). To add custom imports, we must use `WebAssembly.instantiate()` directly (test 12 approach).
+
+---
+
+## updated test summary
+
+| test | result | notes |
+|------|--------|-------|
+| 1. basic sdk | PASS | works with `@wasmer/sdk/node` import |
+| 2. directory read | PASS | JS writes, WASM reads via cat |
+| 3. directory write | PARTIAL | touch works, content writes hang |
+| 4. wasm-terminal | FAIL | browser-only |
+| 5. sdk spawn hooks | NONE | no callback mechanism |
+| 6. custom /bin/node | PARTIAL | source works, exec hangs |
+| 7. Node.js WASI | FAIL | no proc_spawn |
+| 8. raw WASM + JS imports | **PASS** | WebAssembly.instantiate works |
+| 9. WASI + custom imports | **PASS** | can combine WASI + bridge |
+| 10. custom Wasmer package | PARTIAL | fromWasm works, wait hangs |
+| 11. WASIX syscall intercept | **FAIL** | SDK locked down |
+| 12. WASIX + custom module | **PASS** | WebAssembly.instantiate + polyfill works |
+| 13. shell calls node | PARTIAL | reports missing, can't exec |
+| 14. uses option | **PASS** | injects package commands |
+| 15. createPackage/fromFile | **PASS** | programmatic package creation works |
+| 16. custom .webc package | **PASS** | build and load custom packages |
+
+---
+
 ## final recommendations
 
 ### for MVP: hybrid routing
