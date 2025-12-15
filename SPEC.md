@@ -68,9 +68,17 @@ console.log('output', output.stdout, output.stderr, output.code)
 
 ## components
 
-### virtual machine:
+### virtual machine
 
 this vm will be bound to BOTH the node shim. we only care about the file system for now, nothing else.
+
+### node shim
+
+### wasix vm
+
+## steps
+
+### virtual machine
 
 1. implement a basic virtual machine with a fake file system. expose methods on this that forwards to a dedicated folder for this vm. keep this simple and add as needed.
 
@@ -86,8 +94,7 @@ this vm will be bound to BOTH the node shim. we only care about the file system 
 
 1. get basic shell working
 2. get file system bindings working (test ls, cd, etc)
-2. auto-install `node` program in wasix/webassembly.sh to kick out to the nodejs shim that will spawn the isolate
-
+3. auto-install `node` program in wasix/webassembly.sh to kick out to the nodejs shim that will spawn the isolate
 
 ## future work
 
