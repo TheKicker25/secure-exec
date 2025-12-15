@@ -128,11 +128,18 @@ modules that still need bridging to main isolate (real I/O): `fs`, `net`, `http`
 pnpm add isolated-vm
 ```
 
-**wasm-js bridging** - how WasixInstance delegates `node` commands to NodeProcess is TBD. see TEST_WASM_JS_BRIDGE.md for research. potential approaches:
-- `@wasmer/wasm-terminal` fetchCommand callback (older package, may not work with newer SDK)
-- custom WASI imports / host functions
-- filesystem hooks (intercept `/bin/node`)
-- component model (WIT interfaces, still evolving)
+**wasm-js bridging** - how WasixInstance delegates `node` commands to NodeProcess. see TEST_WASM_JS_BRIDGE.md for research.
+
+MVP approach: **hybrid routing** - VirtualMachine routes commands in JS before hitting WASM:
+- `node`/`bun` commands → NodeProcess directly
+- linux commands → @wasmer/sdk
+- simple, works now, but can't run shell scripts that internally call node
+
+future approach: **custom WASM shell** - build a WASM binary with bridge imports:
+- use Node.js native WASI (not @wasmer/sdk) with custom `bridge.*` imports
+- WASM calls `bridge.spawn_node("script.js")` → JS handler → NodeProcess
+- full control, can run arbitrary shell scripts that spawn node
+- requires building custom WASM binary in Rust/C
 
 ## steps
 
