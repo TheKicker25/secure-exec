@@ -284,14 +284,26 @@ run tests in order. document results:
 
 | test | result | notes |
 |------|--------|-------|
-| 1. basic sdk | | |
-| 2. directory read | | |
-| 3. directory write (bidirectional) | | |
-| 4. wasm-terminal | | |
-| 5. sdk spawn hooks | | |
-| 6. custom /bin/node | | |
+| 1. basic sdk | PASS | works with `@wasmer/sdk/node` import, requires tsx/pnpm |
+| 2. directory read | PASS | JS writes, WASM reads via cat - works perfectly |
+| 3. directory write (bidirectional) | PARTIAL | touch works (empty files), content-writing commands (cp, dd, truncate, bash redirect) hang |
+| 4. wasm-terminal | FAIL | browser-only (requires window/xterm), not usable in Node.js |
+| 5. sdk spawn hooks | NONE | no spawn/exec callback mechanism in SDK - designed for isolated execution |
+| 6. custom /bin/node | PARTIAL | `bash -c "source /script"` works; cannot intercept real process spawns |
 
 based on results, decide which approach to use for WASM-JS bridging.
+
+### key findings
+
+1. **@wasmer/sdk works in Node.js** but requires `/node` import path
+2. **filesystem is one-way for content**: JS can write files that WASM reads, but WASM writing file content hangs
+3. **no command interception**: SDK has no hooks for intercepting syscalls or process spawns
+4. **workaround possible**: can mount custom scripts and use `bash -c "source /path"` to execute them
+5. **exit code quirk**: bash WASM returns exit code 45 even on success
+
+### recommendation
+
+the alternative approach is recommended:
 
 ## alternative: skip wasix shell entirely
 

@@ -1,19 +1,23 @@
-// Using /node variant
+// Test 1: Basic @wasmer/sdk functionality
 import { init, Wasmer } from "@wasmer/sdk/node";
 
-async function main() {
+async function main(): Promise<void> {
   console.log("initializing wasmer...");
   await init();
   console.log("wasmer initialized");
 
-  // run a simple command from wasmer registry
+  console.log("loading coreutils...");
   const pkg = await Wasmer.fromRegistry("sharrattj/coreutils");
   console.log("loaded coreutils package");
+  console.log("available commands:", Object.keys(pkg.commands || {}));
 
+  console.log("running echo command...");
   const instance = await pkg.commands["echo"].run({
     args: ["hello", "from", "wasmer"]
   });
+  console.log("instance created");
 
+  console.log("waiting for output...");
   const output = await instance.wait();
   console.log("exit code:", output.code);
   console.log("stdout:", output.stdout);
