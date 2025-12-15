@@ -42,37 +42,41 @@ by the end of this project, we should be able to do:
 
 ```
 const shCode = `
-#!/bin/sh
-node script.js
+    #!/bin/sh
+    node script.js
 `;
 
 const jsCode = `
-const fs = require("fs");
-const path = require("path");
+    const fs = require("fs");
+    const path = require("path");
 
-// test ms package (simple, no deps)
-const ms = require("ms");
-console.log("1 hour in ms:", ms("1h"));
+    // test ms package (simple, no deps)
+    const ms = require("ms");
+    console.log("1 hour in ms:", ms("1h"));
 
-// test jsonfile package (uses fs internally)
-const jsonfile = require("jsonfile");
-const testFile = "/test.json";
-jsonfile.writeFileSync(testFile, { hello: "world" });
+    // test jsonfile package (uses fs internally)
+    const jsonfile = require("jsonfile");
+    const testFile = "/test.json";
+    jsonfile.writeFileSync(testFile, { hello: "world" });
 
-// read back using native fs to verify
-const raw = fs.readFileSync(testFile, "utf8");
-console.log("read back:", JSON.parse(raw));
 `;
 
-const vm = new VirtualMachine("/path/to/local/fs");
+const fs = require("fs");
 
-// write scripts to the vm filesystem
-await vm.writeFile("/test.sh", shCode);
-await vm.writeFile("/script.js", jsCode);
+const vmPath = "/path/to/local/fs";
+const vm = new VirtualMachine(vmPath);
+
+// write scripts to the vm filesystem using native fs
+fs.writeFileSync(`${vmPath}/test.sh`, shCode);
+fs.writeFileSync(`${vmPath}/script.js`, jsCode);
 
 // run the shell script (assumes npm install jsonfile ms was run on host)
 const output = await vm.spawn("sh", ["/test.sh"]);
 console.log('output', output.stdout, output.stderr, output.code)
+
+// read back using native fs to verify
+const raw = fs.readFileSync(`${vmPath}/test.json`, "utf8");
+console.log("read back:", JSON.parse(raw));
 ```
 
 ## components
