@@ -130,10 +130,11 @@ pnpm add isolated-vm
 
 **wasm-js bridging** - how WasixInstance delegates `node` commands to NodeProcess. see TEST_WASM_JS_BRIDGE.md for research.
 
-**hybrid routing** - VirtualMachine routes commands in JS before hitting WASM:
-- `node` commands → NodeProcess directly
-- linux commands → @wasmer/sdk
-- simple, works now, but can't run shell scripts that internally call node
+**custom WASM shell with bridge imports** (test 9 approach):
+- use Node.js native WASI (not @wasmer/sdk) with custom `bridge.*` imports
+- WASM shell calls `bridge.spawn_node("script.js")` → JS handler → NodeProcess
+- requires building a custom WASM binary in Rust that imports both WASI and bridge functions
+- this is what enables shell scripts to call node internally
 
 ## steps
 
@@ -238,9 +239,5 @@ expect(result.stdout).toBe("hello from node\n");
 - get claude code cli working in this emulator
 - emulate npm
 - use node_modules instead of pulling packages from cdn
-- **custom WASM shell** - build a WASM binary with bridge imports:
-  - use Node.js native WASI (not @wasmer/sdk) with custom `bridge.*` imports
-  - WASM calls `bridge.spawn_node("script.js")` → JS handler → NodeProcess
-  - full control, can run arbitrary shell scripts that spawn node
-  - requires building custom WASM binary in Rust/C
+- native addon polyfills - npm packages with native C/C++ bindings won't work in isolated-vm. may need a polyfill registry mapping them to pure-JS alternatives (e.g. esbuild→esbuild-wasm, bcrypt→bcryptjs, sharp→sharp-wasm, sqlite3→sql.js)
 
