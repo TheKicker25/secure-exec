@@ -40,7 +40,7 @@ const output = await vm.spawn("ls", ["/"]);
 console.log('output', output.stdout, output.stderr, output.code)
 ```
 
-**v1 goal** - run node scripts and linux commands separately:
+**goal** - run node scripts, linux commands, and shell scripts that call node:
 
 ```ts
 const vm = new VirtualMachine("/path/to/local/fs");
@@ -63,20 +63,15 @@ console.log(nodeResult.stdout); // "1 hour in ms: 3600000"
 // read back file written by node
 const raw = vm.readFile("/test.json");
 console.log(JSON.parse(raw)); // { hello: "world" }
-```
 
-**stretch goal** - shell scripts that call node (proven viable via file-based IPC, see [test 18](scratch/wasmer-test/test18-fs-polling-ipc.ts)):
-
-```ts
-const vm = new VirtualMachine("/path/to/local/fs");
-
-vm.writeFile("/test.sh", `#!/bin/sh
-node script.js
+// shell script that calls node - bash runs in WASM, node bridges via IPC
+vm.writeFile("/test.sh", `#!/bin/bash
+echo "starting"
+node /script.js
 echo "done"
 `);
-
-// shell runs in WASM, delegates "node" back to JS → NodeProcess
-const output = await vm.spawn("sh", ["/test.sh"]);
+const shResult = await vm.spawn("bash", ["/test.sh"]);
+console.log(shResult.stdout); // "starting\n1 hour in ms: 3600000\ndone"
 ```
 
 ## components
@@ -194,7 +189,30 @@ alternative approach using direct WASM imports (lower latency but more complex):
 
 ## steps
 
-1. implement VirtualMachine and SystemBridge with basic filesystem. VirtualMachine owns a SystemBridge that forwards to a dedicated folder on the host.
+1. get basic isolates & bindings working using isolated-vm
+
+```ts
+import { NodeProcess } from "./node-process";
+
+const proc = new NodeProcess();
+const result = await proc.run(`module.exports = 1 + 1`);
+expect(result).toBe(2);
+```
+
+2. impl nodejs require with polyfill for node stdlib
+
+```ts
+import { NodeProcess } from "./node-process";
+
+const proc = new NodeProcess();
+const result = await proc.run(`
+  const path = require("path");
+  module.exports = path.join("foo", "bar");
+`);
+expect(result).toBe("foo/bar");
+```
+
+3. implement VirtualMachine and SystemBridge with basic filesystem. VirtualMachine owns a SystemBridge that forwards to a dedicated folder on the host.
 
 ```ts
 import { VirtualMachine } from "./vm";
@@ -214,29 +232,6 @@ expect(fs.readFileSync(path.join(tmpDir, "direct.txt"), "utf8")).toBe("hello");
 const vm = new VirtualMachine(tmpDir);
 vm.writeFile("/foo.txt", "bar");
 expect(vm.readFile("/foo.txt")).toBe("bar");
-```
-
-2. get basic isolates & bindings working using isolated-vm
-
-```ts
-import { NodeProcess } from "./node-process";
-
-const proc = new NodeProcess();
-const result = await proc.run(`module.exports = 1 + 1`);
-expect(result).toBe(2);
-```
-
-3. impl nodejs require with polyfill for node stdlib
-
-```ts
-import { NodeProcess } from "./node-process";
-
-const proc = new NodeProcess();
-const result = await proc.run(`
-  const path = require("path");
-  module.exports = path.join("foo", "bar");
-`);
-expect(result).toBe("foo/bar");
 ```
 
 4. get basic wasix shell working

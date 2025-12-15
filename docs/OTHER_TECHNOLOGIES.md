@@ -32,4 +32,6 @@
     - this is the only want to improve permissions for deno
     - would provide lighter weight runtime
     - again, too expensive
+- bubblewrap/etc
+    - wasm is battle tested for security (a zero day would affect all browsers), bubblewrap is more likely to be prone to zero days
 

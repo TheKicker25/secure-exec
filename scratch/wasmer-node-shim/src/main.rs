@@ -12,10 +12,14 @@ const POLL_INTERVAL_MS: u64 = 50;
 fn main() {
     let args: Vec<String> = env::args().collect();
 
-    // Skip argv[0] (our binary name), pass remaining args as the command
-    let cmd_args: Vec<&str> = args.iter().skip(1).map(|s| s.as_str()).collect();
+    // Expect: node <script-path>
+    if args.len() < 2 {
+        eprintln!("Usage: node <script-path>");
+        std::process::exit(1);
+    }
 
-    eprintln!("[wasmer-node-shim] Starting with args: {:?}", cmd_args);
+    let script_path = &args[1];
+    eprintln!("[wasmer-node-shim] Running script: {}", script_path);
 
     // Create IPC directory if it doesn't exist (may fail if already exists)
     let _ = fs::create_dir_all(IPC_DIR);
