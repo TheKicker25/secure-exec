@@ -2,7 +2,7 @@ import { init, Wasmer, Directory } from "@wasmer/sdk/node";
 import * as fs from "fs/promises";
 import * as path from "path";
 import { fileURLToPath } from "url";
-import { NodeProcess, RunResult } from "../node-process/index.js";
+import { NodeProcess, type RunResult } from "sandboxed-node";
 
 export interface ExecResult {
   stdout: string;

@@ -1,4 +1,5 @@
-import type { SystemBridge } from "../system-bridge/index.js";
+import type { Directory } from "@wasmer/sdk/node";
+import { exists, stat } from "./fs-helpers.js";
 
 // Path utilities (since we can't use node:path in a way that works in isolate)
 function dirname(p: string): string {
@@ -31,20 +32,20 @@ function join(...parts: string[]): string {
 export async function resolveModule(
   request: string,
   fromDir: string,
-  bridge: SystemBridge
+  directory: Directory
 ): Promise<string | null> {
   // Absolute paths - resolve directly
   if (request.startsWith("/")) {
-    return resolveAbsolute(request, bridge);
+    return resolveAbsolute(request, directory);
   }
 
   // Relative imports (including bare '.' and '..')
   if (request.startsWith("./") || request.startsWith("../") || request === "." || request === "..") {
-    return resolveRelative(request, fromDir, bridge);
+    return resolveRelative(request, fromDir, directory);
   }
 
   // Bare imports - walk up node_modules
-  return resolveNodeModules(request, fromDir, bridge);
+  return resolveNodeModules(request, fromDir, directory);
 }
 
 /**
@@ -52,31 +53,31 @@ export async function resolveModule(
  */
 async function resolveAbsolute(
   request: string,
-  bridge: SystemBridge
+  directory: Directory
 ): Promise<string | null> {
   // First check if the exact path exists and is a file
   try {
-    const stat = await bridge.stat(request);
-    if (!stat.isDirectory) {
+    const statInfo = await stat(directory, request);
+    if (!statInfo.isDirectory) {
       return request;
     }
     // It's a directory - look for main entry
     const pkgJsonPath = join(request, "package.json");
-    if (await bridge.exists(pkgJsonPath)) {
-      const pkgJson = JSON.parse(await bridge.readFile(pkgJsonPath));
+    if (await exists(directory, pkgJsonPath)) {
+      const pkgJson = JSON.parse(await directory.readTextFile(pkgJsonPath));
       const main = pkgJson.main || "index.js";
       const mainPath = join(request, main);
-      if (await bridge.exists(mainPath)) {
+      if (await exists(directory, mainPath)) {
         return mainPath;
       }
     }
     // Check for index.js
     const indexPath = join(request, "index.js");
-    if (await bridge.exists(indexPath)) {
+    if (await exists(directory, indexPath)) {
       return indexPath;
     }
     const indexJsonPath = join(request, "index.json");
-    if (await bridge.exists(indexJsonPath)) {
+    if (await exists(directory, indexJsonPath)) {
       return indexJsonPath;
     }
   } catch {
@@ -87,7 +88,7 @@ async function resolveAbsolute(
   const extensions = [".js", ".json"];
   for (const ext of extensions) {
     const withExt = request + ext;
-    if (await bridge.exists(withExt)) {
+    if (await exists(directory, withExt)) {
       return withExt;
     }
   }
@@ -101,33 +102,33 @@ async function resolveAbsolute(
 async function resolveRelative(
   request: string,
   fromDir: string,
-  bridge: SystemBridge
+  directory: Directory
 ): Promise<string | null> {
   const basePath = join(fromDir, request);
 
   // First check if the exact path exists and is a file
   try {
-    const stat = await bridge.stat(basePath);
-    if (!stat.isDirectory) {
+    const statInfo = await stat(directory, basePath);
+    if (!statInfo.isDirectory) {
       return basePath;
     }
     // It's a directory - look for main entry
     const pkgJsonPath = join(basePath, "package.json");
-    if (await bridge.exists(pkgJsonPath)) {
-      const pkgJson = JSON.parse(await bridge.readFile(pkgJsonPath));
+    if (await exists(directory, pkgJsonPath)) {
+      const pkgJson = JSON.parse(await directory.readTextFile(pkgJsonPath));
       const main = pkgJson.main || "index.js";
       const mainPath = join(basePath, main);
-      if (await bridge.exists(mainPath)) {
+      if (await exists(directory, mainPath)) {
         return mainPath;
       }
     }
     // Check for index.js
     const indexPath = join(basePath, "index.js");
-    if (await bridge.exists(indexPath)) {
+    if (await exists(directory, indexPath)) {
       return indexPath;
     }
     const indexJsonPath = join(basePath, "index.json");
-    if (await bridge.exists(indexJsonPath)) {
+    if (await exists(directory, indexJsonPath)) {
       return indexJsonPath;
     }
   } catch {
@@ -138,7 +139,7 @@ async function resolveRelative(
   const extensions = [".js", ".json"];
   for (const ext of extensions) {
     const withExt = basePath + ext;
-    if (await bridge.exists(withExt)) {
+    if (await exists(directory, withExt)) {
       return withExt;
     }
   }
@@ -152,7 +153,7 @@ async function resolveRelative(
 async function resolveNodeModules(
   request: string,
   fromDir: string,
-  bridge: SystemBridge
+  directory: Directory
 ): Promise<string | null> {
 
   // Handle scoped packages: @scope/package
@@ -185,14 +186,14 @@ async function resolveNodeModules(
     const packageDir = join(dir, "node_modules", packageName);
     const pkgJsonPath = join(packageDir, "package.json");
 
-    if (await bridge.exists(pkgJsonPath)) {
+    if (await exists(directory, pkgJsonPath)) {
       if (subpath) {
         // Direct file reference: require("lodash/get")
-        return resolveRelative("./" + subpath, packageDir, bridge);
+        return resolveRelative("./" + subpath, packageDir, directory);
       }
 
       // Main entry point
-      const pkgJson = JSON.parse(await bridge.readFile(pkgJsonPath));
+      const pkgJson = JSON.parse(await directory.readTextFile(pkgJsonPath));
       const main = pkgJson.main || "index.js";
 
       // Normalize main path (remove leading ./ and trailing /)
@@ -201,15 +202,15 @@ async function resolveNodeModules(
 
       // Check if mainPath is a directory
       try {
-        const stat = await bridge.stat(mainPath);
-        if (stat.isDirectory) {
+        const statInfo = await stat(directory, mainPath);
+        if (statInfo.isDirectory) {
           // It's a directory - look for index.js
           const indexPath = join(mainPath, "index.js");
-          if (await bridge.exists(indexPath)) {
+          if (await exists(directory, indexPath)) {
             return indexPath;
           }
           const indexJsonPath = join(mainPath, "index.json");
-          if (await bridge.exists(indexJsonPath)) {
+          if (await exists(directory, indexJsonPath)) {
             return indexJsonPath;
           }
         } else {
@@ -235,7 +236,7 @@ async function resolveNodeModules(
       }
 
       for (const candidate of mainCandidates) {
-        if (await bridge.exists(candidate)) {
+        if (await exists(directory, candidate)) {
           return candidate;
         }
       }
@@ -248,12 +249,12 @@ async function resolveNodeModules(
   const rootPackageDir = join("/node_modules", packageName);
   const rootPkgJsonPath = join(rootPackageDir, "package.json");
 
-  if (await bridge.exists(rootPkgJsonPath)) {
+  if (await exists(directory, rootPkgJsonPath)) {
     if (subpath) {
-      return resolveRelative("./" + subpath, rootPackageDir, bridge);
+      return resolveRelative("./" + subpath, rootPackageDir, directory);
     }
 
-    const pkgJson = JSON.parse(await bridge.readFile(rootPkgJsonPath));
+    const pkgJson = JSON.parse(await directory.readTextFile(rootPkgJsonPath));
     const main = pkgJson.main || "index.js";
 
     // Normalize main path (remove leading ./ and trailing /)
@@ -262,14 +263,14 @@ async function resolveNodeModules(
 
     // Check if mainPath is a directory
     try {
-      const stat = await bridge.stat(mainPath);
-      if (stat.isDirectory) {
+      const statInfo = await stat(directory, mainPath);
+      if (statInfo.isDirectory) {
         const indexPath = join(mainPath, "index.js");
-        if (await bridge.exists(indexPath)) {
+        if (await exists(directory, indexPath)) {
           return indexPath;
         }
         const indexJsonPath = join(mainPath, "index.json");
-        if (await bridge.exists(indexJsonPath)) {
+        if (await exists(directory, indexJsonPath)) {
           return indexJsonPath;
         }
       } else {
@@ -282,7 +283,7 @@ async function resolveNodeModules(
     const mainCandidates = [mainPath + ".js", mainPath + "/index.js"];
 
     for (const candidate of mainCandidates) {
-      if (await bridge.exists(candidate)) {
+      if (await exists(directory, candidate)) {
         return candidate;
       }
     }
@@ -296,10 +297,10 @@ async function resolveNodeModules(
  */
 export async function loadFile(
   path: string,
-  bridge: SystemBridge
+  directory: Directory
 ): Promise<string | null> {
   try {
-    return await bridge.readFile(path);
+    return await directory.readTextFile(path);
   } catch {
     return null;
   }
@@ -311,16 +312,16 @@ export async function loadFile(
  */
 export async function bundlePackage(
   packageName: string,
-  bridge: SystemBridge
+  directory: Directory
 ): Promise<string | null> {
   // Resolve the package entry point
-  const entryPath = await resolveNodeModules(packageName, "/", bridge);
+  const entryPath = await resolveNodeModules(packageName, "/", directory);
   if (!entryPath) {
     return null;
   }
 
   try {
-    const entryCode = await bridge.readFile(entryPath);
+    const entryCode = await directory.readTextFile(entryPath);
 
     // Wrap the code in an IIFE that sets up module.exports
     const wrappedCode = `(function() {

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { init, Directory } from "@wasmer/sdk/node";
-import { WasixInstance } from "./index";
-import { NodeProcess } from "../node-process/index";
+import { WasixInstance } from "./index.js";
+import { NodeProcess } from "sandboxed-node";
 
 describe("WasixInstance", () => {
   beforeAll(async () => {

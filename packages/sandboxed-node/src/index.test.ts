@@ -1,7 +1,6 @@
 import { describe, it, expect, afterEach, beforeAll } from "vitest";
 import { init, Directory } from "@wasmer/sdk/node";
-import { NodeProcess, type NetworkAdapter, type CommandExecutor } from "./index";
-import { SystemBridge } from "../system-bridge/index";
+import { NodeProcess, type NetworkAdapter, type CommandExecutor } from "./index.js";
 
 describe("NodeProcess", () => {
   let proc: NodeProcess;
@@ -116,20 +115,21 @@ describe("NodeProcess", () => {
   describe("Step 8: Package imports from node_modules", () => {
     it("should load a simple package from virtual node_modules", async () => {
       const dir = new Directory();
-      const bridge = new SystemBridge(dir);
+      const bridge = dir;
 
       // Create a simple mock package
-      bridge.mkdir("/node_modules/my-pkg");
-      bridge.writeFile(
+      await bridge.createDir("/node_modules");
+      await bridge.createDir("/node_modules/my-pkg");
+      await bridge.writeFile(
         "/node_modules/my-pkg/package.json",
         JSON.stringify({ name: "my-pkg", main: "index.js" })
       );
-      bridge.writeFile(
+      await bridge.writeFile(
         "/node_modules/my-pkg/index.js",
         `module.exports = { add: (a, b) => a + b };`
       );
 
-      proc = new NodeProcess({ systemBridge: bridge });
+      proc = new NodeProcess({ directory: bridge });
       const result = await proc.run(`
         const pkg = require('my-pkg');
         module.exports = pkg.add(2, 3);
@@ -140,20 +140,20 @@ describe("NodeProcess", () => {
 
     it("should load package with default index.js", async () => {
       const dir = new Directory();
-      const bridge = new SystemBridge(dir);
+      const bridge = dir;
 
       // Package without explicit main
-      bridge.mkdir("/node_modules/simple-pkg");
-      bridge.writeFile(
+      await bridge.createDir("/node_modules/simple-pkg");
+      await bridge.writeFile(
         "/node_modules/simple-pkg/package.json",
         JSON.stringify({ name: "simple-pkg" })
       );
-      bridge.writeFile(
+      await bridge.writeFile(
         "/node_modules/simple-pkg/index.js",
         `module.exports = "hello from simple-pkg";`
       );
 
-      proc = new NodeProcess({ systemBridge: bridge });
+      proc = new NodeProcess({ directory: bridge });
       const result = await proc.run(`
         const pkg = require('simple-pkg');
         module.exports = pkg;
@@ -164,20 +164,20 @@ describe("NodeProcess", () => {
 
     it("should prioritize polyfills over node_modules", async () => {
       const dir = new Directory();
-      const bridge = new SystemBridge(dir);
+      const bridge = dir;
 
       // Even if path exists in node_modules, polyfill should be used
-      bridge.mkdir("/node_modules/path");
-      bridge.writeFile(
+      await bridge.createDir("/node_modules/path");
+      await bridge.writeFile(
         "/node_modules/path/package.json",
         JSON.stringify({ name: "path", main: "index.js" })
       );
-      bridge.writeFile(
+      await bridge.writeFile(
         "/node_modules/path/index.js",
         `module.exports = { fake: true };`
       );
 
-      proc = new NodeProcess({ systemBridge: bridge });
+      proc = new NodeProcess({ directory: bridge });
       const result = await proc.run(`
         const path = require('path');
         // Real path polyfill has join, our fake doesn't
@@ -187,22 +187,22 @@ describe("NodeProcess", () => {
       expect(result.exports).toBe(true);
     });
 
-    it("should use setSystemBridge to add bridge later", async () => {
+    it("should use setDirectory to add bridge later", async () => {
       const dir = new Directory();
-      const bridge = new SystemBridge(dir);
+      const bridge = dir;
 
-      bridge.mkdir("/node_modules/late-pkg");
-      bridge.writeFile(
+      await bridge.createDir("/node_modules/late-pkg");
+      await bridge.writeFile(
         "/node_modules/late-pkg/package.json",
         JSON.stringify({ name: "late-pkg", main: "index.js" })
       );
-      bridge.writeFile(
+      await bridge.writeFile(
         "/node_modules/late-pkg/index.js",
         `module.exports = 42;`
       );
 
       proc = new NodeProcess();
-      proc.setSystemBridge(bridge);
+      proc.setDirectory(bridge);
 
       const result = await proc.run(`
         const pkg = require('late-pkg');
@@ -216,17 +216,17 @@ describe("NodeProcess", () => {
   describe("Dynamic CommonJS module resolution", () => {
     it("should resolve relative imports", async () => {
       const dir = new Directory();
-      const bridge = new SystemBridge(dir);
+      const bridge = dir;
 
       // Create a file with relative import
-      bridge.mkdir("/lib");
-      bridge.writeFile("/lib/helper.js", `module.exports = { greet: () => 'Hello' };`);
-      bridge.writeFile(
+      await bridge.createDir("/lib");
+      await bridge.writeFile("/lib/helper.js", `module.exports = { greet: () => 'Hello' };`);
+      await bridge.writeFile(
         "/main.js",
         `const helper = require('./lib/helper'); module.exports = helper.greet();`
       );
 
-      proc = new NodeProcess({ systemBridge: bridge });
+      proc = new NodeProcess({ directory: bridge });
       const result = await proc.run(`
         const main = require('/main.js');
         module.exports = main;
@@ -237,16 +237,16 @@ describe("NodeProcess", () => {
 
     it("should resolve parent directory imports", async () => {
       const dir = new Directory();
-      const bridge = new SystemBridge(dir);
+      const bridge = dir;
 
-      bridge.mkdir("/src/utils");
-      bridge.writeFile("/src/config.js", `module.exports = { name: 'test' };`);
-      bridge.writeFile(
+      await bridge.createDir("/src/utils");
+      await bridge.writeFile("/src/config.js", `module.exports = { name: 'test' };`);
+      await bridge.writeFile(
         "/src/utils/reader.js",
         `const config = require('../config'); module.exports = config.name;`
       );
 
-      proc = new NodeProcess({ systemBridge: bridge });
+      proc = new NodeProcess({ directory: bridge });
       const result = await proc.run(`
         const reader = require('/src/utils/reader.js');
         module.exports = reader;
@@ -257,11 +257,11 @@ describe("NodeProcess", () => {
 
     it("should load JSON files", async () => {
       const dir = new Directory();
-      const bridge = new SystemBridge(dir);
+      const bridge = dir;
 
-      bridge.writeFile("/data.json", JSON.stringify({ version: "1.0.0" }));
+      await bridge.writeFile("/data.json", JSON.stringify({ version: "1.0.0" }));
 
-      proc = new NodeProcess({ systemBridge: bridge });
+      proc = new NodeProcess({ directory: bridge });
       const result = await proc.run(`
         const data = require('/data.json');
         module.exports = data.version;
@@ -272,24 +272,24 @@ describe("NodeProcess", () => {
 
     it("should handle nested requires with dependencies", async () => {
       const dir = new Directory();
-      const bridge = new SystemBridge(dir);
+      const bridge = dir;
 
       // Create a package with internal dependencies
-      bridge.mkdir("/node_modules/my-lib");
-      bridge.writeFile(
+      await bridge.createDir("/node_modules/my-lib");
+      await bridge.writeFile(
         "/node_modules/my-lib/package.json",
         JSON.stringify({ name: "my-lib", main: "index.js" })
       );
-      bridge.writeFile(
+      await bridge.writeFile(
         "/node_modules/my-lib/utils.js",
         `module.exports = { double: x => x * 2 };`
       );
-      bridge.writeFile(
+      await bridge.writeFile(
         "/node_modules/my-lib/index.js",
         `const utils = require('./utils'); module.exports = { calc: x => utils.double(x) };`
       );
 
-      proc = new NodeProcess({ systemBridge: bridge });
+      proc = new NodeProcess({ directory: bridge });
       const result = await proc.run(`
         const lib = require('my-lib');
         module.exports = lib.calc(5);
@@ -300,23 +300,23 @@ describe("NodeProcess", () => {
 
     it("should handle package subpath imports", async () => {
       const dir = new Directory();
-      const bridge = new SystemBridge(dir);
+      const bridge = dir;
 
-      bridge.mkdir("/node_modules/toolkit");
-      bridge.writeFile(
+      await bridge.createDir("/node_modules/toolkit");
+      await bridge.writeFile(
         "/node_modules/toolkit/package.json",
         JSON.stringify({ name: "toolkit", main: "index.js" })
       );
-      bridge.writeFile(
+      await bridge.writeFile(
         "/node_modules/toolkit/index.js",
         `module.exports = { main: true };`
       );
-      bridge.writeFile(
+      await bridge.writeFile(
         "/node_modules/toolkit/extra.js",
         `module.exports = { extra: true };`
       );
 
-      proc = new NodeProcess({ systemBridge: bridge });
+      proc = new NodeProcess({ directory: bridge });
       const result = await proc.run(`
         const extra = require('toolkit/extra');
         module.exports = extra.extra;
@@ -327,14 +327,14 @@ describe("NodeProcess", () => {
 
     it("should cache modules", async () => {
       const dir = new Directory();
-      const bridge = new SystemBridge(dir);
+      const bridge = dir;
 
-      bridge.writeFile("/counter.js", `
+      await bridge.writeFile("/counter.js", `
         let count = 0;
         module.exports = { increment: () => ++count };
       `);
 
-      proc = new NodeProcess({ systemBridge: bridge });
+      proc = new NodeProcess({ directory: bridge });
       const result = await proc.run(`
         const c1 = require('/counter.js');
         const c2 = require('/counter.js');
@@ -351,9 +351,9 @@ describe("NodeProcess", () => {
   describe("fs polyfill", () => {
     it("should read and write files", async () => {
       const dir = new Directory();
-      const bridge = new SystemBridge(dir);
+      const bridge = dir;
 
-      proc = new NodeProcess({ systemBridge: bridge });
+      proc = new NodeProcess({ directory: bridge });
       const result = await proc.run(`
         const fs = require('fs');
         fs.writeFileSync('/test.txt', 'hello world');
@@ -365,10 +365,10 @@ describe("NodeProcess", () => {
 
     it("should check file existence", async () => {
       const dir = new Directory();
-      const bridge = new SystemBridge(dir);
-      bridge.writeFile("/existing.txt", "content");
+      const bridge = dir;
+      await bridge.writeFile("/existing.txt", "content");
 
-      proc = new NodeProcess({ systemBridge: bridge });
+      proc = new NodeProcess({ directory: bridge });
       const result = await proc.run(`
         const fs = require('fs');
         module.exports = {
@@ -382,10 +382,10 @@ describe("NodeProcess", () => {
 
     it("should get file stats", async () => {
       const dir = new Directory();
-      const bridge = new SystemBridge(dir);
-      bridge.writeFile("/myfile.txt", "hello");
+      const bridge = dir;
+      await bridge.writeFile("/myfile.txt", "hello");
 
-      proc = new NodeProcess({ systemBridge: bridge });
+      proc = new NodeProcess({ directory: bridge });
       const result = await proc.run(`
         const fs = require('fs');
         const stats = fs.statSync('/myfile.txt');
@@ -405,12 +405,12 @@ describe("NodeProcess", () => {
 
     it("should read directory contents", async () => {
       const dir = new Directory();
-      const bridge = new SystemBridge(dir);
-      bridge.mkdir("/mydir");
-      bridge.writeFile("/mydir/a.txt", "a");
-      bridge.writeFile("/mydir/b.txt", "b");
+      const bridge = dir;
+      await bridge.createDir("/mydir");
+      await bridge.writeFile("/mydir/a.txt", "a");
+      await bridge.writeFile("/mydir/b.txt", "b");
 
-      proc = new NodeProcess({ systemBridge: bridge });
+      proc = new NodeProcess({ directory: bridge });
       const result = await proc.run<string[]>(`
         const fs = require('fs');
         module.exports = fs.readdirSync('/mydir').sort();
@@ -422,10 +422,10 @@ describe("NodeProcess", () => {
 
     it("should delete files", async () => {
       const dir = new Directory();
-      const bridge = new SystemBridge(dir);
-      bridge.writeFile("/todelete.txt", "content");
+      const bridge = dir;
+      await bridge.writeFile("/todelete.txt", "content");
 
-      proc = new NodeProcess({ systemBridge: bridge });
+      proc = new NodeProcess({ directory: bridge });
       const result = await proc.run(`
         const fs = require('fs');
         const existsBefore = fs.existsSync('/todelete.txt');
@@ -439,9 +439,9 @@ describe("NodeProcess", () => {
 
     it("should work with file descriptors", async () => {
       const dir = new Directory();
-      const bridge = new SystemBridge(dir);
+      const bridge = dir;
 
-      proc = new NodeProcess({ systemBridge: bridge });
+      proc = new NodeProcess({ directory: bridge });
       const result = await proc.run(`
         const fs = require('fs');
         const fd = fs.openSync('/fd-test.txt', 'w');
@@ -455,10 +455,10 @@ describe("NodeProcess", () => {
 
     it("should append to files", async () => {
       const dir = new Directory();
-      const bridge = new SystemBridge(dir);
-      bridge.writeFile("/append.txt", "hello");
+      const bridge = dir;
+      await bridge.writeFile("/append.txt", "hello");
 
-      proc = new NodeProcess({ systemBridge: bridge });
+      proc = new NodeProcess({ directory: bridge });
       const result = await proc.run(`
         const fs = require('fs');
         fs.appendFileSync('/append.txt', ' world');
@@ -470,9 +470,9 @@ describe("NodeProcess", () => {
 
     it("should create directories", async () => {
       const dir = new Directory();
-      const bridge = new SystemBridge(dir);
+      const bridge = dir;
 
-      proc = new NodeProcess({ systemBridge: bridge });
+      proc = new NodeProcess({ directory: bridge });
       const result = await proc.run(`
         const fs = require('fs');
         fs.mkdirSync('/newdir');
@@ -536,16 +536,16 @@ describe("NodeProcess", () => {
 
     it("should import from filesystem with ESM", async () => {
       const dir = new Directory();
-      const bridge = new SystemBridge(dir);
+      const bridge = dir;
 
       // Create directory and ESM module
-      bridge.mkdir("/lib");
-      bridge.writeFile("/lib/math.js", `
+      await bridge.createDir("/lib");
+      await bridge.writeFile("/lib/math.js", `
         export const add = (a, b) => a + b;
         export const multiply = (a, b) => a * b;
       `);
 
-      proc = new NodeProcess({ systemBridge: bridge });
+      proc = new NodeProcess({ directory: bridge });
       const result = await proc.exec(`
         import { add, multiply } from '/lib/math.js';
         console.log('add:', add(2, 3));
@@ -559,15 +559,15 @@ describe("NodeProcess", () => {
 
     it("should import CJS module from ESM", async () => {
       const dir = new Directory();
-      const bridge = new SystemBridge(dir);
+      const bridge = dir;
 
       // Create directory and CJS module
-      bridge.mkdir("/lib");
-      bridge.writeFile("/lib/cjs-helper.js", `
+      await bridge.createDir("/lib");
+      await bridge.writeFile("/lib/cjs-helper.js", `
         module.exports = { greet: (name) => 'Hello, ' + name };
       `);
 
-      proc = new NodeProcess({ systemBridge: bridge });
+      proc = new NodeProcess({ directory: bridge });
       const result = await proc.exec(`
         import helper from '/lib/cjs-helper.js';
         console.log(helper.greet('World'));
@@ -579,22 +579,22 @@ describe("NodeProcess", () => {
 
     it("should handle chained ESM imports", async () => {
       const dir = new Directory();
-      const bridge = new SystemBridge(dir);
+      const bridge = dir;
 
       // Create a chain of ESM imports
-      bridge.writeFile("/a.js", `
+      await bridge.writeFile("/a.js", `
         export const valueA = 'A';
       `);
-      bridge.writeFile("/b.js", `
+      await bridge.writeFile("/b.js", `
         import { valueA } from '/a.js';
         export const valueB = valueA + 'B';
       `);
-      bridge.writeFile("/c.js", `
+      await bridge.writeFile("/c.js", `
         import { valueB } from '/b.js';
         export const valueC = valueB + 'C';
       `);
 
-      proc = new NodeProcess({ systemBridge: bridge });
+      proc = new NodeProcess({ directory: bridge });
       const result = await proc.exec(`
         import { valueC } from '/c.js';
         console.log(valueC);
@@ -606,15 +606,15 @@ describe("NodeProcess", () => {
 
     it("should handle default and named exports together", async () => {
       const dir = new Directory();
-      const bridge = new SystemBridge(dir);
+      const bridge = dir;
 
-      bridge.writeFile("/mixed.js", `
+      await bridge.writeFile("/mixed.js", `
         export const PI = 3.14159;
         export const E = 2.71828;
         export default { name: 'math-constants' };
       `);
 
-      proc = new NodeProcess({ systemBridge: bridge });
+      proc = new NodeProcess({ directory: bridge });
       const result = await proc.exec(`
         import constants, { PI, E } from '/mixed.js';
         console.log('name:', constants.name);
@@ -653,11 +653,11 @@ describe("NodeProcess", () => {
 
     it("should import JSON with ESM", async () => {
       const dir = new Directory();
-      const bridge = new SystemBridge(dir);
+      const bridge = dir;
 
-      bridge.writeFile("/config.json", JSON.stringify({ debug: true, version: "1.0.0" }));
+      await bridge.writeFile("/config.json", JSON.stringify({ debug: true, version: "1.0.0" }));
 
-      proc = new NodeProcess({ systemBridge: bridge });
+      proc = new NodeProcess({ directory: bridge });
       const result = await proc.exec(`
         import config from '/config.json';
         console.log('debug:', config.debug);
@@ -685,15 +685,15 @@ describe("NodeProcess", () => {
 
     it("should support dynamic import() for filesystem modules", async () => {
       const dir = new Directory();
-      const bridge = new SystemBridge(dir);
+      const bridge = dir;
 
-      bridge.mkdir("/lib");
-      bridge.writeFile("/lib/utils.js", `
+      await bridge.createDir("/lib");
+      await bridge.writeFile("/lib/utils.js", `
         export const double = (x) => x * 2;
         export const triple = (x) => x * 3;
       `);
 
-      proc = new NodeProcess({ systemBridge: bridge });
+      proc = new NodeProcess({ directory: bridge });
       const result = await proc.exec(`
         async function main() {
           const utils = await import('/lib/utils.js');
@@ -710,12 +710,12 @@ describe("NodeProcess", () => {
 
     it("should support conditional dynamic imports", async () => {
       const dir = new Directory();
-      const bridge = new SystemBridge(dir);
+      const bridge = dir;
 
-      bridge.writeFile("/a.js", `export const name = 'module-a';`);
-      bridge.writeFile("/b.js", `export const name = 'module-b';`);
+      await bridge.writeFile("/a.js", `export const name = 'module-a';`);
+      await bridge.writeFile("/b.js", `export const name = 'module-b';`);
 
-      proc = new NodeProcess({ systemBridge: bridge });
+      proc = new NodeProcess({ directory: bridge });
       const result = await proc.exec(`
         async function loadModule(useA) {
           if (useA) {
@@ -741,14 +741,14 @@ describe("NodeProcess", () => {
 
     it("should support dynamic import() with CJS modules", async () => {
       const dir = new Directory();
-      const bridge = new SystemBridge(dir);
+      const bridge = dir;
 
-      bridge.mkdir("/lib");
-      bridge.writeFile("/lib/cjs-mod.js", `
+      await bridge.createDir("/lib");
+      await bridge.writeFile("/lib/cjs-mod.js", `
         module.exports = { greeting: 'Hello from CJS' };
       `);
 
-      proc = new NodeProcess({ systemBridge: bridge });
+      proc = new NodeProcess({ directory: bridge });
       const result = await proc.exec(`
         async function main() {
           const mod = await import('/lib/cjs-mod.js');
@@ -1888,14 +1888,14 @@ describe("NodeProcess", () => {
 
     it("should create require from filename", async () => {
       const dir = new Directory();
-      const systemBridge = new SystemBridge(dir);
+      const directory = dir;
       // Create directories first (wasmer Directory doesn't auto-create parents)
-      systemBridge.mkdir("/app");
-      systemBridge.mkdir("/app/lib");
-      systemBridge.writeFile("/app/lib/util.js", "module.exports = { name: 'util' };");
-      systemBridge.writeFile("/app/package.json", "{}");
+      await directory.createDir("/app");
+      await directory.createDir("/app/lib");
+      await directory.writeFile("/app/lib/util.js", "module.exports = { name: 'util' };");
+      await directory.writeFile("/app/package.json", "{}");
 
-      proc = new NodeProcess({ systemBridge });
+      proc = new NodeProcess({ directory });
 
       const result = await proc.run(`
         const { createRequire } = require('module');
@@ -1908,11 +1908,11 @@ describe("NodeProcess", () => {
 
     it("should support file:// URLs", async () => {
       const dir = new Directory();
-      const systemBridge = new SystemBridge(dir);
-      systemBridge.mkdir("/app");
-      systemBridge.writeFile("/app/mod.js", "module.exports = 42;");
+      const directory = dir;
+      await directory.createDir("/app");
+      await directory.writeFile("/app/mod.js", "module.exports = 42;");
 
-      proc = new NodeProcess({ systemBridge });
+      proc = new NodeProcess({ directory });
 
       const result = await proc.run(`
         const { createRequire } = require('module');
@@ -1924,13 +1924,13 @@ describe("NodeProcess", () => {
 
     it("should share module cache", async () => {
       const dir = new Directory();
-      const systemBridge = new SystemBridge(dir);
-      systemBridge.mkdir("/a");
-      systemBridge.mkdir("/b");
-      systemBridge.writeFile("/a/mod.js", "module.exports = { count: 0 };");
-      systemBridge.writeFile("/b/index.js", "");
+      const directory = dir;
+      await directory.createDir("/a");
+      await directory.createDir("/b");
+      await directory.writeFile("/a/mod.js", "module.exports = { count: 0 };");
+      await directory.writeFile("/b/index.js", "");
 
-      proc = new NodeProcess({ systemBridge });
+      proc = new NodeProcess({ directory });
 
       const result = await proc.run(`
         const { createRequire } = require('module');
@@ -1948,12 +1948,12 @@ describe("NodeProcess", () => {
 
     it("should have require.resolve", async () => {
       const dir = new Directory();
-      const systemBridge = new SystemBridge(dir);
-      systemBridge.mkdir("/app");
-      systemBridge.mkdir("/app/lib");
-      systemBridge.writeFile("/app/lib/util.js", "module.exports = {};");
+      const directory = dir;
+      await directory.createDir("/app");
+      await directory.createDir("/app/lib");
+      await directory.writeFile("/app/lib/util.js", "module.exports = {};");
 
-      proc = new NodeProcess({ systemBridge });
+      proc = new NodeProcess({ directory });
 
       const result = await proc.run(`
         const { createRequire } = require('module');
@@ -2124,28 +2124,28 @@ describe("NodeProcess", () => {
 
     it("should support npm-style module loading patterns", async () => {
       const dir = new Directory();
-      const systemBridge = new SystemBridge(dir);
+      const directory = dir;
 
       // Create a typical npm package structure
-      systemBridge.mkdir("/app");
-      systemBridge.mkdir("/app/node_modules");
-      systemBridge.mkdir("/app/node_modules/my-lib");
-      systemBridge.mkdir("/app/lib");
+      await directory.createDir("/app");
+      await directory.createDir("/app/node_modules");
+      await directory.createDir("/app/node_modules/my-lib");
+      await directory.createDir("/app/lib");
 
       // package.json
-      systemBridge.writeFile("/app/package.json", JSON.stringify({
+      await directory.writeFile("/app/package.json", JSON.stringify({
         name: "my-app",
         version: "1.0.0",
         main: "index.js"
       }));
 
       // node_modules package - use simpler main path
-      systemBridge.writeFile("/app/node_modules/my-lib/package.json", JSON.stringify({
+      await directory.writeFile("/app/node_modules/my-lib/package.json", JSON.stringify({
         name: "my-lib",
         version: "2.0.0",
         main: "index.js"
       }));
-      systemBridge.writeFile("/app/node_modules/my-lib/index.js", `
+      await directory.writeFile("/app/node_modules/my-lib/index.js", `
         module.exports = {
           version: '2.0.0',
           greet: function(name) { return 'Hello, ' + name + '!'; }
@@ -2153,14 +2153,14 @@ describe("NodeProcess", () => {
       `);
 
       // local module
-      systemBridge.writeFile("/app/lib/utils.js", `
+      await directory.writeFile("/app/lib/utils.js", `
         module.exports = {
           formatName: function(name) { return name.toUpperCase(); }
         };
       `);
 
       proc = new NodeProcess({
-        systemBridge,
+        directory,
         processConfig: { cwd: "/app" }
       });
 
@@ -2306,10 +2306,10 @@ describe("NodeProcess", () => {
 
     it("should handle npm-style fs operations with package.json", async () => {
       const dir = new Directory();
-      const systemBridge = new SystemBridge(dir);
+      const directory = dir;
 
-      systemBridge.mkdir("/app");
-      systemBridge.writeFile("/app/package.json", JSON.stringify({
+      await directory.createDir("/app");
+      await directory.writeFile("/app/package.json", JSON.stringify({
         name: "my-package",
         version: "1.2.3",
         description: "A test package",
@@ -2324,7 +2324,7 @@ describe("NodeProcess", () => {
       }, null, 2));
 
       proc = new NodeProcess({
-        systemBridge,
+        directory,
         processConfig: { cwd: "/app" }
       });
 
@@ -2358,23 +2358,23 @@ describe("NodeProcess", () => {
 
     it("should handle npm-style createRequire for dynamic loading", async () => {
       const dir = new Directory();
-      const systemBridge = new SystemBridge(dir);
+      const directory = dir;
 
       // Create plugins in /app/plugins (relative to /app/config.json)
-      systemBridge.mkdir("/app");
-      systemBridge.mkdir("/app/plugins");
-      systemBridge.writeFile("/app/plugins/plugin-a.js", `
+      await directory.createDir("/app");
+      await directory.createDir("/app/plugins");
+      await directory.writeFile("/app/plugins/plugin-a.js", `
         module.exports = { name: 'plugin-a', type: 'a' };
       `);
-      systemBridge.writeFile("/app/plugins/plugin-b.js", `
+      await directory.writeFile("/app/plugins/plugin-b.js", `
         module.exports = { name: 'plugin-b', type: 'b' };
       `);
-      systemBridge.writeFile("/app/config.json", JSON.stringify({
+      await directory.writeFile("/app/config.json", JSON.stringify({
         plugins: ['./plugins/plugin-a', './plugins/plugin-b']
       }));
 
       proc = new NodeProcess({
-        systemBridge,
+        directory,
         processConfig: { cwd: "/app" }
       });
 
@@ -2404,24 +2404,24 @@ describe("NodeProcess", () => {
 
     it("should handle combined module operations (integration)", async () => {
       const dir = new Directory();
-      const systemBridge = new SystemBridge(dir);
+      const directory = dir;
 
       // Setup a simpler package structure
-      systemBridge.mkdir("/project");
-      systemBridge.mkdir("/project/node_modules");
-      systemBridge.mkdir("/project/node_modules/chalk");
+      await directory.createDir("/project");
+      await directory.createDir("/project/node_modules");
+      await directory.createDir("/project/node_modules/chalk");
 
-      systemBridge.writeFile("/project/package.json", JSON.stringify({
+      await directory.writeFile("/project/package.json", JSON.stringify({
         name: "integration-test",
         version: "1.0.0"
       }));
 
       // Fake chalk module
-      systemBridge.writeFile("/project/node_modules/chalk/package.json", JSON.stringify({
+      await directory.writeFile("/project/node_modules/chalk/package.json", JSON.stringify({
         name: "chalk",
         main: "index.js"
       }));
-      systemBridge.writeFile("/project/node_modules/chalk/index.js", `
+      await directory.writeFile("/project/node_modules/chalk/index.js", `
         module.exports = {
           green: function(s) { return '[green]' + s + '[/green]'; },
           red: function(s) { return '[red]' + s + '[/red]'; }
@@ -2429,7 +2429,7 @@ describe("NodeProcess", () => {
       `);
 
       // Put utils directly in project (simpler path resolution)
-      systemBridge.writeFile("/project/utils.js", `
+      await directory.writeFile("/project/utils.js", `
         const chalk = require('chalk');
         const path = require('path');
         const os = require('os');
@@ -2445,7 +2445,7 @@ describe("NodeProcess", () => {
       `);
 
       proc = new NodeProcess({
-        systemBridge,
+        directory,
         processConfig: { cwd: "/project" },
         osConfig: { platform: "darwin", arch: "arm64" }
       });

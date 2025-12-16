@@ -2,10 +2,15 @@ import ivm from "isolated-vm";
 import * as https from "node:https";
 import * as dns from "node:dns";
 import * as zlib from "node:zlib";
+import type { Directory } from "@wasmer/sdk/node";
 import { bundlePolyfill, hasPolyfill } from "./polyfills.js";
 import { resolveModule, loadFile } from "./package-bundler.js";
-import type { SystemBridge } from "../system-bridge/index.js";
-import { FS_MODULE_CODE, getBridgeWithConfig } from "../bridge-loader.js";
+import { exists, stat, rename, readDirWithTypes, mkdir, type StatInfo, type DirEntry } from "./fs-helpers.js";
+import { FS_MODULE_CODE, getBridgeWithConfig } from "./bridge-loader.js";
+
+// Re-export types
+export type { Directory } from "@wasmer/sdk/node";
+export type { StatInfo, DirEntry } from "./fs-helpers.js";
 
 // Config types for process and os modules
 export interface ProcessConfig {
@@ -211,7 +216,7 @@ export function createDefaultNetworkAdapter(): NetworkAdapter {
 
 export interface NodeProcessOptions {
   memoryLimit?: number; // MB, default 128
-  systemBridge?: SystemBridge; // For accessing virtual filesystem
+  directory?: Directory; // For accessing virtual filesystem
   processConfig?: ProcessConfig; // Process object configuration
   commandExecutor?: CommandExecutor; // For child_process support (e.g., WasixInstance)
   networkAdapter?: NetworkAdapter; // For network support (fetch, http, https, dns)
@@ -298,7 +303,7 @@ export class NodeProcess {
   private isolate: ivm.Isolate;
   private context: ivm.Context | null = null;
   private memoryLimit: number;
-  private systemBridge?: SystemBridge;
+  private directory?: Directory;
   private processConfig: ProcessConfig;
   private commandExecutor?: CommandExecutor;
   private networkAdapter?: NetworkAdapter;
@@ -309,7 +314,7 @@ export class NodeProcess {
   constructor(options: NodeProcessOptions = {}) {
     this.memoryLimit = options.memoryLimit ?? 128;
     this.isolate = new ivm.Isolate({ memoryLimit: this.memoryLimit });
-    this.systemBridge = options.systemBridge;
+    this.directory = options.directory;
     this.processConfig = options.processConfig ?? {};
     this.commandExecutor = options.commandExecutor;
     this.networkAdapter = options.networkAdapter;
@@ -328,6 +333,13 @@ export class NodeProcess {
    */
   setNetworkAdapter(adapter: NetworkAdapter): void {
     this.networkAdapter = adapter;
+  }
+
+  /**
+   * Set the Directory for filesystem access
+   */
+  setDirectory(directory: Directory): void {
+    this.directory = directory;
   }
 
   /**
@@ -378,11 +390,11 @@ export class NodeProcess {
     }
 
     // Bare specifier - try to resolve from node_modules
-    if (!this.systemBridge) {
+    if (!this.directory) {
       return null;
     }
 
-    return resolveModule(specifier, referrerDir, this.systemBridge);
+    return resolveModule(specifier, referrerDir, this.directory);
   }
 
   /**
@@ -460,10 +472,10 @@ export class NodeProcess {
       }
     } else {
       // Load from filesystem
-      if (!this.systemBridge) {
-        throw new Error("SystemBridge required for loading modules");
+      if (!this.directory) {
+        throw new Error("Directory required for loading modules");
       }
-      const source = await loadFile(filePath, this.systemBridge);
+      const source = await loadFile(filePath, this.directory);
       if (source === null) {
         throw new Error(`Cannot load module: ${filePath}`);
       }
@@ -649,13 +661,6 @@ export class NodeProcess {
   }
 
   /**
-   * Set the SystemBridge for filesystem access
-   */
-  setSystemBridge(bridge: SystemBridge): void {
-    this.systemBridge = bridge;
-  }
-
-  /**
    * Set up the require() system in a context
    */
   private async setupRequire(
@@ -708,10 +713,10 @@ export class NodeProcess {
     // Create a reference for resolving module paths
     const resolveModuleRef = new ivm.Reference(
       async (request: string, fromDir: string): Promise<string | null> => {
-        if (!this.systemBridge) {
+        if (!this.directory) {
           return null;
         }
-        return resolveModule(request, fromDir, this.systemBridge);
+        return resolveModule(request, fromDir, this.directory);
       }
     );
 
@@ -719,10 +724,10 @@ export class NodeProcess {
     // Also transforms dynamic import() calls to __dynamicImport()
     const loadFileRef = new ivm.Reference(
       async (path: string): Promise<string | null> => {
-        if (!this.systemBridge) {
+        if (!this.directory) {
           return null;
         }
-        const source = await loadFile(path, this.systemBridge);
+        const source = await loadFile(path, this.directory);
         if (source === null) {
           return null;
         }
@@ -745,60 +750,60 @@ export class NodeProcess {
     });
     await jail.set("_scheduleTimer", scheduleTimerRef);
 
-    // Set up fs References if we have a SystemBridge
-    if (this.systemBridge) {
-      const bridge = this.systemBridge;
+    // Set up fs References if we have a Directory
+    if (this.directory) {
+      const directory = this.directory;
 
       // Create individual References for each fs operation
       const readFileRef = new ivm.Reference(async (path: string) => {
-        return bridge.readFile(path);
+        return directory.readTextFile(path);
       });
       const writeFileRef = new ivm.Reference((path: string, content: string) => {
-        bridge.writeFile(path, content);
+        directory.writeFile(path, content);
       });
       // Binary file operations using base64 encoding
       const readFileBinaryRef = new ivm.Reference(async (path: string) => {
-        const data = await bridge.readFileBinary(path);
+        const data = await directory.readFile(path);
         // Convert to base64 for transfer across isolate boundary
         return Buffer.from(data).toString("base64");
       });
       const writeFileBinaryRef = new ivm.Reference((path: string, base64Content: string) => {
         // Decode base64 and write as binary
         const data = Buffer.from(base64Content, "base64");
-        bridge.writeFile(path, data);
+        directory.writeFile(path, data);
       });
       const readDirRef = new ivm.Reference(async (path: string) => {
-        const entries = await bridge.readDirWithTypes(path);
+        const entries = await readDirWithTypes(directory, path);
         // Return as JSON string for transfer
         return JSON.stringify(entries);
       });
       const mkdirRef = new ivm.Reference((path: string) => {
-        bridge.mkdir(path);
+        mkdir(directory, path);
       });
       const rmdirRef = new ivm.Reference(async (path: string) => {
-        await bridge.removeDir(path);
+        await directory.removeDir(path);
       });
       const existsRef = new ivm.Reference(async (path: string) => {
-        return bridge.exists(path);
+        return exists(directory, path);
       });
       const statRef = new ivm.Reference(async (path: string) => {
-        const stat = await bridge.stat(path);
+        const statInfo = await stat(directory, path);
         // Return as JSON string for transfer
         return JSON.stringify({
-          mode: stat.mode,
-          size: stat.size,
-          isDirectory: stat.isDirectory,
-          atimeMs: stat.atimeMs,
-          mtimeMs: stat.mtimeMs,
-          ctimeMs: stat.ctimeMs,
-          birthtimeMs: stat.birthtimeMs,
+          mode: statInfo.mode,
+          size: statInfo.size,
+          isDirectory: statInfo.isDirectory,
+          atimeMs: statInfo.atimeMs,
+          mtimeMs: statInfo.mtimeMs,
+          ctimeMs: statInfo.ctimeMs,
+          birthtimeMs: statInfo.birthtimeMs,
         });
       });
       const unlinkRef = new ivm.Reference(async (path: string) => {
-        await bridge.unlink(path);
+        await directory.removeFile(path);
       });
       const renameRef = new ivm.Reference(async (oldPath: string, newPath: string) => {
-        await bridge.rename(oldPath, newPath);
+        await rename(directory, oldPath, newPath);
       });
 
       // Set up each fs Reference individually in the isolate
@@ -951,7 +956,7 @@ export class NodeProcess {
         if (name === 'fs') {
           if (_moduleCache['fs']) return _moduleCache['fs'];
           if (typeof _fs === 'undefined') {
-            throw new Error('fs module requires SystemBridge to be configured');
+            throw new Error('fs module requires Directory to be configured');
           }
           const fsModule = eval(_fsModuleCode);
           _moduleCache['fs'] = fsModule;
@@ -1505,55 +1510,55 @@ export class NodeProcess {
     context: ivm.Context,
     jail: ivm.Reference<Record<string, unknown>>
   ): Promise<void> {
-    // Set up fs references if we have a SystemBridge (needed for fs import)
-    if (this.systemBridge) {
-      const bridge = this.systemBridge;
+    // Set up fs references if we have a Directory (needed for fs import)
+    if (this.directory) {
+      const directory = this.directory;
 
       const readFileRef = new ivm.Reference(async (path: string) => {
-        return bridge.readFile(path);
+        return directory.readTextFile(path);
       });
       const writeFileRef = new ivm.Reference((path: string, content: string) => {
-        bridge.writeFile(path, content);
+        directory.writeFile(path, content);
       });
       // Binary file operations using base64 encoding
       const readFileBinaryRef = new ivm.Reference(async (path: string) => {
-        const data = await bridge.readFileBinary(path);
+        const data = await directory.readFile(path);
         return Buffer.from(data).toString("base64");
       });
       const writeFileBinaryRef = new ivm.Reference((path: string, base64Content: string) => {
         const data = Buffer.from(base64Content, "base64");
-        bridge.writeFile(path, data);
+        directory.writeFile(path, data);
       });
       const readDirRef = new ivm.Reference(async (path: string) => {
-        const entries = await bridge.readDirWithTypes(path);
+        const entries = await readDirWithTypes(directory, path);
         return JSON.stringify(entries);
       });
       const mkdirRef = new ivm.Reference((path: string) => {
-        bridge.mkdir(path);
+        mkdir(directory, path);
       });
       const rmdirRef = new ivm.Reference(async (path: string) => {
-        await bridge.removeDir(path);
+        await directory.removeDir(path);
       });
       const existsRef = new ivm.Reference(async (path: string) => {
-        return bridge.exists(path);
+        return exists(directory, path);
       });
       const statRef = new ivm.Reference(async (path: string) => {
-        const stat = await bridge.stat(path);
+        const statInfo = await stat(directory, path);
         return JSON.stringify({
-          mode: stat.mode,
-          size: stat.size,
-          isDirectory: stat.isDirectory,
-          atimeMs: stat.atimeMs,
-          mtimeMs: stat.mtimeMs,
-          ctimeMs: stat.ctimeMs,
-          birthtimeMs: stat.birthtimeMs,
+          mode: statInfo.mode,
+          size: statInfo.size,
+          isDirectory: statInfo.isDirectory,
+          atimeMs: statInfo.atimeMs,
+          mtimeMs: statInfo.mtimeMs,
+          ctimeMs: statInfo.ctimeMs,
+          birthtimeMs: statInfo.birthtimeMs,
         });
       });
       const unlinkRef = new ivm.Reference(async (path: string) => {
-        await bridge.unlink(path);
+        await directory.removeFile(path);
       });
       const renameRef = new ivm.Reference(async (oldPath: string, newPath: string) => {
-        await bridge.rename(oldPath, newPath);
+        await rename(directory, oldPath, newPath);
       });
 
       await jail.set("_fsReadFile", readFileRef);
@@ -1793,11 +1798,8 @@ export class NodeProcess {
           `globalThis.__scriptResult__ && typeof globalThis.__scriptResult__.then === 'function'`,
           { copy: true }
         );
-        console.log('[exec] hasPromise:', hasPromise);
         if (hasPromise) {
-          console.log('[exec] Awaiting script Promise...');
           await context.eval(`globalThis.__scriptResult__`, { promise: true });
-          console.log('[exec] Script Promise resolved');
         }
       }
 

@@ -1,6 +1,9 @@
 {
   "$schema": "https://turbo.build/schema.json",
   "tasks": {
+    "build:bridge": {
+      "outputs": ["assets/bridge.js"]
+    },
     "build:wasix": {
       "outputs": ["assets/runtime.webc"],
       "cache": false
@@ -10,7 +13,7 @@
       "cache": false
     },
     "build": {
-      "dependsOn": ["^build", "build:wasix", "build:npm"],
+      "dependsOn": ["^build", "build:bridge", "build:wasix", "build:npm"],
       "outputs": ["dist/**"]
     },
     "check-types": {

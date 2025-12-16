@@ -3,7 +3,7 @@ import * as fs from "fs/promises";
 import * as path from "path";
 import { fileURLToPath } from "url";
 import { SystemBridge } from "../system-bridge/index.js";
-import { NodeProcess } from "../node-process/index.js";
+import { NodeProcess } from "sandboxed-node";
 import { WasixInstance, InteractiveSession } from "../wasix/index.js";
 
 export { WasixInstance, InteractiveSession, Directory };
@@ -54,7 +54,7 @@ export class VirtualMachine {
     // Create NodeProcess with access to virtual filesystem
     this.nodeProcess = new NodeProcess({
       memoryLimit: this.options.memoryLimit,
-      systemBridge: this.bridge,
+      directory: this.bridge.getDirectory(),
     });
 
     // Create WasixInstance sharing the same filesystem
