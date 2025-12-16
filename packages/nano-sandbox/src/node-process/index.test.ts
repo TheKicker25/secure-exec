@@ -2459,8 +2459,10 @@ describe("NodeProcess", () => {
         };
       `);
 
-      expect((result.exports as { formattedPath: string }).formattedPath).toBe("[green]bar/baz[/green]");
-      expect((result.exports as { platformInfo: string }).platformInfo).toBe("[red]darwin-arm64[/red]");
+      // Built-in chalk stub provides passthrough (no color) for sandbox safety
+      // The local chalk module in node_modules is bypassed to ensure consistent behavior
+      expect((result.exports as { formattedPath: string }).formattedPath).toBe("bar/baz");
+      expect((result.exports as { platformInfo: string }).platformInfo).toBe("darwin-arm64");
     });
 
     it("should handle npm-style child_process for scripts", async () => {

@@ -350,12 +350,20 @@ export function generateZlibPolyfill(): string {
       this._mode = mode;
       this._chunks = [];
       this._listeners = {};
+      this._finished = false;
+      this._closed = false;
+      this.readable = true;
+      this.writable = true;
     }
 
     on(event, handler) {
       if (!this._listeners[event]) this._listeners[event] = [];
       this._listeners[event].push(handler);
       return this;
+    }
+
+    addListener(event, handler) {
+      return this.on(event, handler);
     }
 
     once(event, handler) {
@@ -374,18 +382,46 @@ export function generateZlibPolyfill(): string {
       return this;
     }
 
+    removeListener(event, handler) {
+      return this.off(event, handler);
+    }
+
+    removeAllListeners(event) {
+      if (event) {
+        delete this._listeners[event];
+      } else {
+        this._listeners = {};
+      }
+      return this;
+    }
+
     emit(event, ...args) {
       if (this._listeners[event]) {
         this._listeners[event].forEach(h => h(...args));
+        return true;
       }
+      return false;
     }
 
-    write(chunk) {
+    write(chunk, encoding, callback) {
+      if (typeof encoding === 'function') {
+        callback = encoding;
+        encoding = undefined;
+      }
       this._chunks.push(chunk);
+      if (callback) Promise.resolve().then(callback);
       return true;
     }
 
-    end(chunk) {
+    end(chunk, encoding, callback) {
+      if (typeof chunk === 'function') {
+        callback = chunk;
+        chunk = undefined;
+      } else if (typeof encoding === 'function') {
+        callback = encoding;
+        encoding = undefined;
+      }
+
       if (chunk) this._chunks.push(chunk);
 
       try {
@@ -415,48 +451,164 @@ export function generateZlibPolyfill(): string {
             throw new Error('Unknown zlib mode: ' + this._mode);
         }
 
+        this._finished = true;
         Promise.resolve().then(() => {
           this.emit('data', result);
           this.emit('end');
+          this.emit('finish');
+          if (callback) callback();
         });
       } catch (err) {
         Promise.resolve().then(() => {
           this.emit('error', err);
+          if (callback) callback(err);
         });
       }
+      return this;
+    }
+
+    close(callback) {
+      this._closed = true;
+      this.writable = false;
+      this.readable = false;
+      Promise.resolve().then(() => {
+        this.emit('close');
+        if (callback) callback();
+      });
+      return this;
+    }
+
+    destroy(err) {
+      this._closed = true;
+      this.writable = false;
+      this.readable = false;
+      if (err) {
+        Promise.resolve().then(() => {
+          this.emit('error', err);
+          this.emit('close');
+        });
+      } else {
+        Promise.resolve().then(() => {
+          this.emit('close');
+        });
+      }
+      return this;
+    }
+
+    flush(kind, callback) {
+      if (typeof kind === 'function') {
+        callback = kind;
+        kind = constants.Z_FULL_FLUSH;
+      }
+      // No-op for our simple implementation
+      if (callback) Promise.resolve().then(callback);
+      return this;
     }
 
     pipe(dest) {
       this.on('data', chunk => dest.write(chunk));
-      this.on('end', () => dest.end());
+      this.on('end', () => {
+        if (typeof dest.end === 'function') dest.end();
+      });
       this.on('error', err => dest.emit && dest.emit('error', err));
       return dest;
+    }
+
+    unpipe(dest) {
+      // Simple implementation - just remove listeners
+      return this;
+    }
+
+    setEncoding(encoding) {
+      return this;
+    }
+
+    pause() {
+      return this;
+    }
+
+    resume() {
+      return this;
+    }
+  }
+
+  // Zlib transform stream classes (can be used with 'new')
+  class Gzip extends ZlibStream {
+    constructor(options) {
+      super('gzip');
+      this._options = options || {};
+    }
+  }
+
+  class Gunzip extends ZlibStream {
+    constructor(options) {
+      super('gunzip');
+      this._options = options || {};
+    }
+  }
+
+  class Deflate extends ZlibStream {
+    constructor(options) {
+      super('deflate');
+      this._options = options || {};
+    }
+  }
+
+  class Inflate extends ZlibStream {
+    constructor(options) {
+      super('inflate');
+      this._options = options || {};
+    }
+  }
+
+  class DeflateRaw extends ZlibStream {
+    constructor(options) {
+      super('deflateRaw');
+      this._options = options || {};
+    }
+  }
+
+  class InflateRaw extends ZlibStream {
+    constructor(options) {
+      super('inflateRaw');
+      this._options = options || {};
+    }
+  }
+
+  class Unzip extends ZlibStream {
+    constructor(options) {
+      super('gunzip');  // Unzip handles both gzip and deflate
+      this._options = options || {};
     }
   }
 
   // Factory functions
-  function createGunzip() {
-    return new ZlibStream('gunzip');
+  function createGunzip(options) {
+    return new Gunzip(options);
   }
 
-  function createGzip() {
-    return new ZlibStream('gzip');
+  function createGzip(options) {
+    return new Gzip(options);
   }
 
-  function createInflate() {
-    return new ZlibStream('inflate');
+  function createInflate(options) {
+    return new Inflate(options);
   }
 
-  function createDeflate() {
-    return new ZlibStream('deflate');
+  function createDeflate(options) {
+    return new Deflate(options);
   }
 
-  function createInflateRaw() {
-    return new ZlibStream('inflateRaw');
+  function createInflateRaw(options) {
+    return new InflateRaw(options);
   }
 
-  function createDeflateRaw() {
-    return new ZlibStream('deflateRaw');
+  function createDeflateRaw(options) {
+    return new DeflateRaw(options);
+  }
+
+  function createUnzip(options) {
+    return new Unzip(options);
   }
 
   // Callback versions
@@ -586,11 +738,20 @@ export function generateZlibPolyfill(): string {
     createDeflate,
     createInflateRaw,
     createDeflateRaw,
+    createUnzip,
+
+    // Constructor classes (for use with 'new')
+    Gzip,
+    Gunzip,
+    Deflate,
+    Inflate,
+    DeflateRaw,
+    InflateRaw,
+    Unzip,
 
     // Aliases
     unzip: gunzip,
     unzipSync: gunzipSync,
-    createUnzip: createGunzip,
 
     // Brotli stubs
     brotliCompressSync,

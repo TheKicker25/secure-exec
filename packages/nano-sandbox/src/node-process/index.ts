@@ -986,6 +986,67 @@ export class NodeProcess {
             };
           }
 
+          // Patch url module to fix file: URL handling for npm-package-arg
+          // npm-package-arg tries to create URLs like "file:." which are invalid standalone
+          // We wrap URL to handle these cases gracefully by using process.cwd() as default base
+          if (name === 'url') {
+            const OriginalURL = result.URL;
+            if (OriginalURL) {
+              // Create a patched URL constructor
+              const PatchedURL = function PatchedURL(url, base) {
+                // If url is a relative file: reference and no base provided, use cwd as base
+                if (typeof url === 'string' && url.startsWith('file:') && !url.startsWith('file://') && base === undefined) {
+                  // Try to use process.cwd() as a default base for relative file: URLs
+                  if (typeof process !== 'undefined' && typeof process.cwd === 'function') {
+                    const cwd = process.cwd();
+                    if (cwd) {
+                      try {
+                        return new OriginalURL(url, 'file://' + cwd + '/');
+                      } catch (e) {
+                        // Fall through to original behavior
+                      }
+                    }
+                  }
+                }
+                // Call original with potentially undefined base
+                if (base !== undefined) {
+                  return new OriginalURL(url, base);
+                } else {
+                  return new OriginalURL(url);
+                }
+              };
+              // Copy static properties and prototype
+              Object.keys(OriginalURL).forEach(function(key) {
+                PatchedURL[key] = OriginalURL[key];
+              });
+              Object.setPrototypeOf(PatchedURL, OriginalURL);
+              PatchedURL.prototype = OriginalURL.prototype;
+
+              // The URL property is a getter from esbuild's bundled output
+              // We need to create a new object that copies all properties manually
+              const patchedResult = {};
+              // Get all property names including non-enumerable ones
+              const allKeys = Object.getOwnPropertyNames(result);
+              for (let i = 0; i < allKeys.length; i++) {
+                const key = allKeys[i];
+                if (key === 'URL') {
+                  patchedResult.URL = PatchedURL;
+                } else {
+                  try {
+                    patchedResult[key] = result[key];
+                  } catch (e) {
+                    // Skip properties that can't be read
+                  }
+                }
+              }
+              // Replace moduleObj.exports with the patched version and cache it
+              moduleObj.exports = patchedResult;
+              _moduleCache[name] = patchedResult;
+              delete _pendingModules[name];
+              return patchedResult;
+            }
+          }
+
           // Patch path module with win32/posix if missing
           // path-browserify provides posix but not win32, npm expects both
           if (name === 'path') {
@@ -1037,6 +1098,12 @@ export class NodeProcess {
             Object.assign(moduleObj.exports, result);
           } else {
             moduleObj.exports = result;
+          }
+
+          // Debug: check if URL was copied correctly
+          if (name === 'url') {
+            console.log('[DEBUG] After Object.assign, moduleObj.exports.URL._patched:', moduleObj.exports.URL && moduleObj.exports.URL._patched);
+            console.log('[DEBUG] After Object.assign, moduleObj.exports.URL === result.URL:', moduleObj.exports.URL === result.URL);
           }
 
           _moduleCache[name] = moduleObj.exports;
