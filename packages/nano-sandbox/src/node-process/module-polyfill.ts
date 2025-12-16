@@ -135,36 +135,62 @@ export function generateModulePolyfill(): string {
     return requireFn;
   }
 
-  // Module object with createRequire and other utilities
-  const moduleModule = {
-    createRequire: createRequire,
+  // Module class constructor (for compatibility with promzard and similar)
+  class Module {
+    constructor(id, parent) {
+      this.id = id;
+      this.path = _pathDirname(id);
+      this.exports = {};
+      this.filename = id;
+      this.loaded = false;
+      this.children = [];
+      this.paths = [];
+      this.parent = parent;
 
-    // Module._extensions (deprecated alias)
-    _extensions: {
-      '.js': function() {},
-      '.json': function() {},
-      '.node': function() { throw new Error('.node extensions are not supported'); }
-    },
+      // Build module paths
+      let current = this.path;
+      while (current !== '/') {
+        this.paths.push(current + '/node_modules');
+        current = _pathDirname(current);
+      }
+      this.paths.push('/node_modules');
+    }
 
-    // Module._cache reference
-    _cache: _moduleCache,
+    require(request) {
+      return _requireFrom(request, this.path);
+    }
 
-    // Built-in module list
-    builtinModules: [
-      'assert', 'buffer', 'child_process', 'crypto', 'dns', 'events',
-      'fs', 'http', 'https', 'net', 'os', 'path', 'querystring',
-      'stream', 'string_decoder', 'timers', 'tls', 'tty', 'url', 'util', 'zlib'
-    ],
+    _compile(content, filename) {
+      // Create wrapper function and execute
+      const wrapper = new Function(
+        'exports', 'require', 'module', '__filename', '__dirname',
+        content
+      );
+      const moduleRequire = (request) => _requireFrom(request, this.path);
+      moduleRequire.resolve = (request) => _resolveModule.applySyncPromise(undefined, [request, this.path]);
+      wrapper(this.exports, moduleRequire, this, filename, this.path);
+      this.loaded = true;
+      return this.exports;
+    }
 
-    // isBuiltin check
-    isBuiltin: function(moduleName) {
-      const name = moduleName.replace(/^node:/, '');
-      return moduleModule.builtinModules.includes(name);
-    },
+    static _extensions = {
+      '.js': function(module, filename) {
+        const content = require('fs').readFileSync(filename, 'utf8');
+        module._compile(content, filename);
+      },
+      '.json': function(module, filename) {
+        const content = require('fs').readFileSync(filename, 'utf8');
+        module.exports = JSON.parse(content);
+      },
+      '.node': function() {
+        throw new Error('.node extensions are not supported in sandbox');
+      }
+    };
 
-    // Module._resolveFilename (internal but sometimes used)
-    _resolveFilename: function(request, parent, isMain, options) {
-      const parentDir = parent && parent.dirname ? parent.dirname : '/';
+    static _cache = _moduleCache;
+
+    static _resolveFilename(request, parent, isMain, options) {
+      const parentDir = parent && parent.path ? parent.path : '/';
       const resolved = _resolveModule.applySyncPromise(undefined, [request, parentDir]);
       if (resolved === null) {
         const err = new Error("Cannot find module '" + request + "'");
@@ -172,7 +198,79 @@ export function generateModulePolyfill(): string {
         throw err;
       }
       return resolved;
-    },
+    }
+
+    static wrap(content) {
+      return '(function (exports, require, module, __filename, __dirname) { ' + content + '\\n});';
+    }
+
+    static builtinModules = [
+      'assert', 'buffer', 'child_process', 'crypto', 'dns', 'events',
+      'fs', 'http', 'https', 'net', 'os', 'path', 'querystring',
+      'stream', 'string_decoder', 'timers', 'tls', 'tty', 'url', 'util', 'zlib', 'vm', 'module'
+    ];
+
+    static isBuiltin(moduleName) {
+      const name = moduleName.replace(/^node:/, '');
+      return Module.builtinModules.includes(name);
+    }
+
+    static createRequire = createRequire;
+
+    static syncBuiltinESMExports() {
+      // No-op in our environment
+    }
+
+    static findSourceMap(path) {
+      return undefined;
+    }
+
+    static _nodeModulePaths(from) {
+      // Return array of node_modules paths from the given directory up to root
+      const paths = [];
+      let current = from;
+      while (current !== '/') {
+        paths.push(current + '/node_modules');
+        current = _pathDirname(current);
+        if (current === '.') break;
+      }
+      paths.push('/node_modules');
+      return paths;
+    }
+
+    static _load(request, parent, isMain) {
+      // Use our require system
+      const parentDir = parent && parent.path ? parent.path : '/';
+      return _requireFrom(request, parentDir);
+    }
+
+    static runMain() {
+      // No-op - we don't have a main module in this context
+    }
+  }
+
+  // Module object with createRequire and other utilities
+  const moduleModule = {
+    Module: Module,
+    createRequire: createRequire,
+
+    // Module._extensions (deprecated alias)
+    _extensions: Module._extensions,
+
+    // Module._cache reference
+    _cache: _moduleCache,
+
+    // Built-in module list
+    builtinModules: Module.builtinModules,
+
+    // isBuiltin check
+    isBuiltin: Module.isBuiltin,
+
+    // Module._resolveFilename (internal but sometimes used)
+    _resolveFilename: Module._resolveFilename,
+
+    // wrap function
+    wrap: Module.wrap,
 
     // syncBuiltinESMExports (stub for ESM interop)
     syncBuiltinESMExports: function() {

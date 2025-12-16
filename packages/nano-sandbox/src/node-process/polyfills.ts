@@ -21,6 +21,16 @@ export async function bundlePolyfill(moduleName: string): Promise<string> {
     throw new Error(`No polyfill available for module: ${moduleName}`);
   }
 
+  // Build alias mappings for all Node.js builtins
+  // This ensures nested dependencies (like crypto -> stream) are resolved correctly
+  const alias: Record<string, string> = {};
+  for (const [name, path] of Object.entries(stdLibBrowser)) {
+    if (path !== null) {
+      alias[name] = path;
+      alias[`node:${name}`] = path;
+    }
+  }
+
   // Bundle using esbuild with CommonJS format
   // This ensures proper module.exports handling for all module types including JSON
   const result = await esbuild.build({
@@ -31,6 +41,7 @@ export async function bundlePolyfill(moduleName: string): Promise<string> {
     platform: "browser",
     target: "es2020",
     minify: false,
+    alias,
     define: {
       "process.env.NODE_ENV": '"production"',
       global: "globalThis",

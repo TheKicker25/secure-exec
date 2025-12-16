@@ -379,9 +379,14 @@ const fs = {
     try {
       statJson = _fs.stat.applySyncPromise(undefined, [pathStr]);
     } catch (err) {
-      // Convert "entry not found" and similar errors to proper ENOENT
+      // Convert various "not found" errors to proper ENOENT
       const errMsg = (err as Error).message || String(err);
-      if (errMsg.includes("entry not found") || errMsg.includes("not found")) {
+      if (
+        errMsg.includes("entry not found") ||
+        errMsg.includes("not found") ||
+        errMsg.includes("ENOENT") ||
+        errMsg.includes("no such file or directory")
+      ) {
         throw createFsError(
           "ENOENT",
           `ENOENT: no such file or directory, stat '${pathStr}'`,
@@ -907,33 +912,51 @@ const fs = {
   },
 
   // fs.promises API
+  // Note: Using async functions to properly catch sync errors and return rejected promises
   promises: {
-    readFile: (path: string, options?: ReadFileOptions) =>
-      Promise.resolve(fs.readFileSync(path, options)),
-    writeFile: (path: string, data: string | Uint8Array, options?: WriteFileOptions) =>
-      Promise.resolve(fs.writeFileSync(path, data, options)),
-    appendFile: (path: string, data: string | Uint8Array, options?: WriteFileOptions) =>
-      Promise.resolve(fs.appendFileSync(path, data, options)),
-    readdir: (path: string, options?: ReaddirOptions) =>
-      Promise.resolve(fs.readdirSync(path, options)),
-    mkdir: (path: string, options?: MkdirOptions) =>
-      Promise.resolve(fs.mkdirSync(path, options)),
-    rmdir: (path: string) => Promise.resolve(fs.rmdirSync(path)),
-    stat: (path: string) => Promise.resolve(fs.statSync(path)),
-    lstat: (path: string) => Promise.resolve(fs.lstatSync(path)),
-    unlink: (path: string) => Promise.resolve(fs.unlinkSync(path)),
-    rename: (oldPath: string, newPath: string) =>
-      Promise.resolve(fs.renameSync(oldPath, newPath)),
-    copyFile: (src: string, dest: string) =>
-      Promise.resolve(fs.copyFileSync(src, dest)),
-    access: (path: string) =>
-      Promise.resolve(
-        fs.existsSync(path)
-          ? undefined
-          : (() => {
-              throw new Error("ENOENT");
-            })()
-      ),
+    async readFile(path: string, options?: ReadFileOptions) {
+      return fs.readFileSync(path, options);
+    },
+    async writeFile(path: string, data: string | Uint8Array, options?: WriteFileOptions) {
+      return fs.writeFileSync(path, data, options);
+    },
+    async appendFile(path: string, data: string | Uint8Array, options?: WriteFileOptions) {
+      return fs.appendFileSync(path, data, options);
+    },
+    async readdir(path: string, options?: ReaddirOptions) {
+      return fs.readdirSync(path, options);
+    },
+    async mkdir(path: string, options?: MkdirOptions) {
+      return fs.mkdirSync(path, options);
+    },
+    async rmdir(path: string) {
+      return fs.rmdirSync(path);
+    },
+    async stat(path: string) {
+      return fs.statSync(path);
+    },
+    async lstat(path: string) {
+      return fs.lstatSync(path);
+    },
+    async unlink(path: string) {
+      return fs.unlinkSync(path);
+    },
+    async rename(oldPath: string, newPath: string) {
+      return fs.renameSync(oldPath, newPath);
+    },
+    async copyFile(src: string, dest: string) {
+      return fs.copyFileSync(src, dest);
+    },
+    async access(path: string) {
+      if (!fs.existsSync(path)) {
+        throw createFsError(
+          "ENOENT",
+          `ENOENT: no such file or directory, access '${path}'`,
+          "access",
+          path
+        );
+      }
+    },
   },
 
   // Compatibility methods

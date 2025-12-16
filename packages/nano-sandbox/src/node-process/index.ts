@@ -858,6 +858,80 @@ export class NodeProcess {
           return supportsColor;
         }
 
+        // Stub for http2 module (npm uses for registry requests)
+        if (name === 'http2') {
+          if (_moduleCache['http2']) return _moduleCache['http2'];
+
+          const http2 = {
+            constants: {
+              HTTP2_HEADER_LOCATION: 'location',
+              HTTP2_HEADER_STATUS: ':status',
+              HTTP2_HEADER_PATH: ':path',
+              HTTP2_HEADER_METHOD: ':method',
+              HTTP2_HEADER_AUTHORITY: ':authority',
+              HTTP2_HEADER_SCHEME: ':scheme',
+              HTTP2_HEADER_CONTENT_TYPE: 'content-type',
+              HTTP2_HEADER_CONTENT_LENGTH: 'content-length',
+              HTTP2_HEADER_ACCEPT: 'accept',
+              HTTP2_HEADER_ACCEPT_ENCODING: 'accept-encoding',
+              HTTP2_HEADER_USER_AGENT: 'user-agent',
+              HTTP2_METHOD_GET: 'GET',
+              HTTP2_METHOD_POST: 'POST',
+              NGHTTP2_CANCEL: 0x8,
+              NGHTTP2_NO_ERROR: 0x0,
+              HTTP_STATUS_OK: 200,
+              HTTP_STATUS_NOT_FOUND: 404
+            },
+            connect: function() {
+              throw new Error('http2.connect is not supported in sandbox');
+            },
+            createServer: function() {
+              throw new Error('http2.createServer is not supported in sandbox');
+            },
+            createSecureServer: function() {
+              throw new Error('http2.createSecureServer is not supported in sandbox');
+            }
+          };
+
+          _moduleCache['http2'] = http2;
+          return http2;
+        }
+
+        // Stub for v8 module (npm's arborist uses it)
+        if (name === 'v8') {
+          if (_moduleCache['v8']) return _moduleCache['v8'];
+
+          // Return realistic heap statistics (128MB limit, ~50MB used)
+          // npm uses these to calculate cache sizes, so 0 values cause errors
+          const v8 = {
+            getHeapStatistics: function() {
+              return {
+                total_heap_size: 67108864,           // 64MB
+                total_heap_size_executable: 1048576, // 1MB
+                total_physical_size: 67108864,       // 64MB
+                total_available_size: 67108864,      // 64MB available
+                used_heap_size: 52428800,            // 50MB used
+                heap_size_limit: 134217728,          // 128MB limit
+                malloced_memory: 8192,
+                peak_malloced_memory: 16384,
+                does_zap_garbage: 0,
+                number_of_native_contexts: 1,
+                number_of_detached_contexts: 0,
+                external_memory: 0
+              };
+            },
+            getHeapSpaceStatistics: function() { return []; },
+            getHeapCodeStatistics: function() { return {}; },
+            setFlagsFromString: function() {},
+            serialize: function(value) { return Buffer.from(JSON.stringify(value)); },
+            deserialize: function(buffer) { return JSON.parse(buffer.toString()); },
+            cachedDataVersionTag: function() { return 0; }
+          };
+
+          _moduleCache['v8'] = v8;
+          return v8;
+        }
+
         // Try to load polyfill first (for built-in modules like path, events, etc.)
         const polyfillCode = _loadPolyfill.applySyncPromise(undefined, [name]);
         if (polyfillCode !== null) {
@@ -875,6 +949,18 @@ export class NodeProcess {
               // Basic implementation using format
               return result.format.apply(null, args);
             };
+          }
+
+          // Patch path module with win32/posix if missing
+          // path-browserify provides posix but not win32, npm expects both
+          if (name === 'path') {
+            if (result.win32 === null || result.win32 === undefined) {
+              // Provide win32 as posix implementation (good enough for sandbox)
+              result.win32 = result.posix || result;
+            }
+            if (result.posix === null || result.posix === undefined) {
+              result.posix = result;
+            }
           }
           if (typeof result === 'object' && result !== null) {
             Object.assign(moduleObj.exports, result);

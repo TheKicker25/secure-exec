@@ -60,7 +60,7 @@ export function generateNetworkPolyfill(): string {
   class Headers {
     constructor(init) {
       this._headers = {};
-      if (init) {
+      if (init && init !== null) {
         if (init instanceof Headers) {
           this._headers = { ...init._headers };
         } else if (Array.isArray(init)) {
@@ -199,19 +199,23 @@ export function generateNetworkPolyfill(): string {
     // IncomingMessage stub
     class IncomingMessage {
       constructor(response) {
-        this.headers = response.headers || {};
+        this.headers = response?.headers || {};
         this.rawHeaders = [];
-        Object.entries(this.headers).forEach(([k, v]) => {
-          this.rawHeaders.push(k, v);
-        });
+        if (this.headers && typeof this.headers === 'object') {
+          Object.entries(this.headers).forEach(([k, v]) => {
+            this.rawHeaders.push(k, v);
+          });
+        }
+        this.trailers = {};  // HTTP trailers (trailing headers after body)
+        this.rawTrailers = [];
         this.httpVersion = '1.1';
         this.httpVersionMajor = 1;
         this.httpVersionMinor = 1;
         this.method = null;
-        this.url = response.url || '';
-        this.statusCode = response.status;
-        this.statusMessage = response.statusText;
-        this._body = response.body || '';
+        this.url = response?.url || '';
+        this.statusCode = response?.status;
+        this.statusMessage = response?.statusText;
+        this._body = response?.body || '';
         this._listeners = {};
         this.complete = true;
         this.aborted = false;
@@ -257,9 +261,51 @@ export function generateNetworkPolyfill(): string {
         }
       }
 
-      setEncoding(encoding) { return this; }
-      read() { return null; }
-      pipe(dest) { return dest; }
+      setEncoding(encoding) {
+        this._encoding = encoding;
+        return this;
+      }
+
+      // Stream readable methods
+      read(size) {
+        if (this._bodyConsumed) return null;
+        this._bodyConsumed = true;
+        const buf = typeof Buffer !== 'undefined' ? Buffer.from(this._body) : this._body;
+        return buf;
+      }
+
+      pipe(dest) {
+        // Pipe body data to destination
+        if (this._body) {
+          const buf = typeof Buffer !== 'undefined' ? Buffer.from(this._body) : this._body;
+          if (typeof dest.write === 'function') {
+            dest.write(buf);
+          }
+          if (typeof dest.end === 'function') {
+            dest.end();
+          }
+        }
+        return dest;
+      }
+
+      pause() { return this; }
+      resume() { return this; }
+      unpipe() { return this; }
+      destroy() { return this; }
+
+      // Make it iterable/async iterable for minipass
+      [Symbol.asyncIterator]() {
+        const body = this._body;
+        let consumed = false;
+        return {
+          async next() {
+            if (consumed) return { done: true, value: undefined };
+            consumed = true;
+            const buf = typeof Buffer !== 'undefined' ? Buffer.from(body) : body;
+            return { done: false, value: buf };
+          }
+        };
+      }
     }
 
     // ClientRequest stub

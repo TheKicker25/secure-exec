@@ -21,7 +21,7 @@ export interface ProcessConfig {
 export function generateProcessPolyfill(config: ProcessConfig = {}): string {
   const platform = config.platform ?? "linux";
   const arch = config.arch ?? "x64";
-  const version = config.version ?? "v20.0.0";
+  const version = config.version ?? "v22.0.0";
   const cwd = config.cwd ?? "/";
   const env = config.env ?? {};
   const argv = config.argv ?? ["node", "script.js"];
@@ -455,11 +455,25 @@ export function generateProcessPolyfill(config: ProcessConfig = {}): string {
     },
 
     binding: function(name) {
-      throw new Error('process.binding is not supported');
+      // Return stub implementations for common bindings
+      const stubs = {
+        fs: {},
+        buffer: { Buffer: globalThis.Buffer },
+        process_wrap: {},
+        natives: {},
+        config: {},
+        uv: { UV_UDP_REUSEADDR: 4 },
+        constants: {},
+        crypto: {},
+        string_decoder: {},
+        os: {}
+      };
+      return stubs[name] || {};
     },
 
     _linkedBinding: function(name) {
-      throw new Error('process._linkedBinding is not supported');
+      // Same as binding
+      return process.binding(name);
     },
 
     dlopen: function() {
@@ -590,6 +604,90 @@ export function generateProcessPolyfill(config: ProcessConfig = {}): string {
   // Also expose queueMicrotask globally
   if (typeof globalThis.queueMicrotask === 'undefined') {
     globalThis.queueMicrotask = _queueMicrotask;
+  }
+
+  // Provide URL if not available (used by npm for registry URLs)
+  if (typeof globalThis.URL === 'undefined') {
+    // Minimal URL implementation for npm
+    globalThis.URL = class URL {
+      constructor(url, base) {
+        // Ensure url is a string (might be a URL object)
+        let urlStr = typeof url === 'object' && url !== null && typeof url.toString === 'function'
+          ? url.toString()
+          : String(url);
+        let fullUrl = urlStr;
+
+        if (base) {
+          // Ensure base is a string
+          const baseStr = typeof base === 'object' && base !== null && typeof base.toString === 'function'
+            ? base.toString()
+            : String(base);
+
+          // Very basic relative URL handling
+          if (!urlStr.startsWith('http://') && !urlStr.startsWith('https://') && !urlStr.startsWith('//')) {
+            const baseUrl = new URL(baseStr);
+            if (urlStr.startsWith('/')) {
+              fullUrl = baseUrl.origin + urlStr;
+            } else {
+              fullUrl = baseStr.replace(/[^/]*$/, '') + urlStr;
+            }
+          }
+        }
+
+        // Parse the URL
+        const match = fullUrl.match(/^(https?:)\\/\\/([^/:]+)(?::(\\d+))?(\\/[^?#]*)?(\\?[^#]*)?(#.*)?$/);
+        if (!match) {
+          throw new TypeError('Invalid URL: ' + urlStr);
+        }
+
+        this.href = fullUrl;
+        this.protocol = match[1] || '';
+        this.host = match[2] + (match[3] ? ':' + match[3] : '');
+        this.hostname = match[2] || '';
+        this.port = match[3] || '';
+        this.pathname = match[4] || '/';
+        this.search = match[5] || '';
+        this.hash = match[6] || '';
+        this.origin = this.protocol + '//' + this.host;
+        this.searchParams = new URLSearchParams(this.search);
+      }
+      toString() { return this.href; }
+      toJSON() { return this.href; }
+    };
+  }
+
+  if (typeof globalThis.URLSearchParams === 'undefined') {
+    globalThis.URLSearchParams = class URLSearchParams {
+      constructor(init) {
+        this._params = new Map();
+        if (typeof init === 'string') {
+          const params = init.startsWith('?') ? init.slice(1) : init;
+          for (const pair of params.split('&')) {
+            const [key, value] = pair.split('=').map(decodeURIComponent);
+            if (key) this._params.set(key, value || '');
+          }
+        } else if (init && typeof init === 'object') {
+          for (const [key, value] of Object.entries(init)) {
+            this._params.set(key, value);
+          }
+        }
+      }
+      get(key) { return this._params.get(key) || null; }
+      set(key, value) { this._params.set(key, value); }
+      has(key) { return this._params.has(key); }
+      delete(key) { this._params.delete(key); }
+      append(key, value) { this._params.set(key, value); }
+      toString() {
+        return Array.from(this._params.entries())
+          .map(([k, v]) => encodeURIComponent(k) + '=' + encodeURIComponent(v))
+          .join('&');
+      }
+      *entries() { yield* this._params.entries(); }
+      *keys() { yield* this._params.keys(); }
+      *values() { yield* this._params.values(); }
+      forEach(cb) { this._params.forEach(cb); }
+      [Symbol.iterator]() { return this._params[Symbol.iterator](); }
+    };
   }
 
   // Provide TextEncoder/TextDecoder if not available (needed for Buffer)
@@ -789,6 +887,52 @@ export function generateProcessPolyfill(config: ProcessConfig = {}): string {
     }
 
     globalThis.Buffer = Buffer;
+  }
+
+  // Provide crypto.getRandomValues if not available (needed for uuid generation)
+  if (typeof globalThis.crypto === 'undefined' || typeof globalThis.crypto.getRandomValues === 'undefined') {
+    const cryptoPolyfill = {
+      getRandomValues: function(array) {
+        // Use a simple PRNG since we don't have access to secure random
+        // This is NOT cryptographically secure but works for npm's use cases
+        for (let i = 0; i < array.length; i++) {
+          if (array instanceof Uint8Array) {
+            array[i] = Math.floor(Math.random() * 256);
+          } else if (array instanceof Uint16Array) {
+            array[i] = Math.floor(Math.random() * 65536);
+          } else if (array instanceof Uint32Array) {
+            array[i] = Math.floor(Math.random() * 4294967296);
+          } else {
+            array[i] = Math.floor(Math.random() * 256);
+          }
+        }
+        return array;
+      },
+      randomUUID: function() {
+        // Generate a v4 UUID using Math.random
+        const bytes = new Uint8Array(16);
+        cryptoPolyfill.getRandomValues(bytes);
+        // Set version (4) and variant (RFC4122)
+        bytes[6] = (bytes[6] & 0x0f) | 0x40;
+        bytes[8] = (bytes[8] & 0x3f) | 0x80;
+        const hex = [...bytes].map(b => b.toString(16).padStart(2, '0')).join('');
+        return hex.slice(0, 8) + '-' + hex.slice(8, 12) + '-' + hex.slice(12, 16) + '-' + hex.slice(16, 20) + '-' + hex.slice(20);
+      },
+      // SubtleCrypto stub (not implemented but prevents errors)
+      subtle: {
+        digest: function() { throw new Error('crypto.subtle.digest not supported in sandbox'); },
+        encrypt: function() { throw new Error('crypto.subtle.encrypt not supported in sandbox'); },
+        decrypt: function() { throw new Error('crypto.subtle.decrypt not supported in sandbox'); },
+      }
+    };
+
+    if (typeof globalThis.crypto === 'undefined') {
+      globalThis.crypto = cryptoPolyfill;
+    } else {
+      // crypto exists but getRandomValues doesn't
+      globalThis.crypto.getRandomValues = cryptoPolyfill.getRandomValues;
+      globalThis.crypto.randomUUID = cryptoPolyfill.randomUUID;
+    }
   }
 
   return process;
