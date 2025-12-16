@@ -195,4 +195,129 @@ describe("NPM CLI Integration", () => {
       { timeout: 60000 }
     );
   });
+
+  describe("Step 2: npm config list", () => {
+    it(
+      "should run npm config list and show configuration",
+      async () => {
+        const dir = new Directory();
+        const systemBridge = new SystemBridge(dir);
+
+        // Set up directory structure
+        systemBridge.mkdir("/usr");
+        systemBridge.mkdir("/usr/lib");
+        systemBridge.mkdir("/usr/lib/node_modules");
+        systemBridge.mkdir("/app");
+
+        // Copy npm package
+        const fileCount = copyDirToVirtual(
+          NPM_PATH,
+          "/usr/lib/node_modules/npm",
+          systemBridge,
+          {
+            skipPatterns: [
+              /\.md$/i,
+              /\.txt$/i,
+              /LICENSE/i,
+              /CHANGELOG/i,
+              /test\//i,
+              /docs\//i,
+              /man\//i,
+            ],
+          }
+        );
+        console.log(`Copied ${fileCount} files`);
+
+        // Create a minimal package.json in /app and root
+        systemBridge.writeFile(
+          "/app/package.json",
+          JSON.stringify({ name: "test-app", version: "1.0.0" })
+        );
+        systemBridge.writeFile(
+          "/package.json",
+          JSON.stringify({ name: "root", version: "1.0.0" })
+        );
+
+        // Create home directory structure for npm
+        systemBridge.mkdir("/app/.npm");
+        systemBridge.writeFile("/app/.npmrc", "");
+        systemBridge.writeFile("/.npmrc", "");
+
+        // Create additional directories npm might need
+        systemBridge.mkdir("/etc");
+        systemBridge.writeFile("/etc/npmrc", "");
+        systemBridge.mkdir("/usr/etc");
+        systemBridge.writeFile("/usr/etc/npmrc", "");
+        systemBridge.mkdir("/usr/local");
+        systemBridge.mkdir("/usr/local/etc");
+        systemBridge.writeFile("/usr/local/etc/npmrc", "");
+        systemBridge.mkdir("/usr/bin");
+        systemBridge.writeFile("/usr/bin/node", "");
+        systemBridge.mkdir("/usr/lib/node_modules/npm/bin");
+        systemBridge.writeFile("/usr/lib/node_modules/npm/bin/node", "");
+        systemBridge.mkdir("/opt");
+        systemBridge.mkdir("/opt/homebrew");
+        systemBridge.mkdir("/opt/homebrew/etc");
+        systemBridge.writeFile("/opt/homebrew/etc/npmrc", "");
+
+        // Create a mock command executor that returns empty results
+        const mockCommandExecutor = {
+          async exec(command: string) {
+            console.log('[MOCK EXEC]', command);
+            return { stdout: '', stderr: '', code: 0 };
+          },
+          async run(command: string, args?: string[]) {
+            console.log('[MOCK RUN]', command, args);
+            return { stdout: '', stderr: '', code: 0 };
+          }
+        };
+
+        proc = new NodeProcess({
+          systemBridge,
+          commandExecutor: mockCommandExecutor,
+          processConfig: {
+            cwd: "/app",
+            env: {
+              PATH: "/usr/bin:/usr/lib/node_modules/npm/bin",
+              HOME: "/app",
+              npm_config_cache: "/app/.npm",
+            },
+            argv: ["node", "npm", "config", "list"],
+          },
+        });
+
+        const result = await proc.exec(`
+          (async function() {
+            try {
+              process.on('output', (type, ...args) => {
+                if (type === 'standard') {
+                  process.stdout.write(args.join(' ') + '\\n');
+                } else if (type === 'error') {
+                  process.stderr.write(args.join(' ') + '\\n');
+                }
+              });
+
+              const npmCli = require('/usr/lib/node_modules/npm/lib/cli.js');
+              await npmCli(process);
+            } catch (e) {
+              // Ignore expected errors
+              if (!e.message.includes('formatWithOptions') &&
+                  !e.message.includes('update-notifier')) {
+                console.error('Error:', e.message);
+                process.exitCode = 1;
+              }
+            }
+          })();
+        `);
+
+        console.log("stdout:", result.stdout);
+        console.log("stderr:", result.stderr);
+        console.log("code:", result.code);
+
+        // Should output some config info (HOME, cwd, etc.)
+        expect(result.stdout).toContain("HOME = /app");
+      },
+      { timeout: 60000 }
+    );
+  });
 });

@@ -867,6 +867,15 @@ export class NodeProcess {
           _pendingModules[name] = moduleObj;
 
           const result = eval(polyfillCode);
+
+          // Patch util module with formatWithOptions if missing
+          if (name === 'util' && typeof result.formatWithOptions === 'undefined') {
+            // Create a basic formatWithOptions that mimics Node.js behavior
+            result.formatWithOptions = function formatWithOptions(inspectOptions, ...args) {
+              // Basic implementation using format
+              return result.format.apply(null, args);
+            };
+          }
           if (typeof result === 'object' && result !== null) {
             Object.assign(moduleObj.exports, result);
           } else {

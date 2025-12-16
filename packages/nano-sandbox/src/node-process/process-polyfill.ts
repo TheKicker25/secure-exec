@@ -592,6 +592,205 @@ export function generateProcessPolyfill(config: ProcessConfig = {}): string {
     globalThis.queueMicrotask = _queueMicrotask;
   }
 
+  // Provide TextEncoder/TextDecoder if not available (needed for Buffer)
+  if (typeof globalThis.TextEncoder === 'undefined') {
+    // Simple UTF-8 only TextEncoder
+    globalThis.TextEncoder = class TextEncoder {
+      get encoding() { return 'utf-8'; }
+      encode(str) {
+        const utf8 = [];
+        for (let i = 0; i < str.length; i++) {
+          let charCode = str.charCodeAt(i);
+          if (charCode < 0x80) {
+            utf8.push(charCode);
+          } else if (charCode < 0x800) {
+            utf8.push(0xc0 | (charCode >> 6), 0x80 | (charCode & 0x3f));
+          } else if (charCode < 0xd800 || charCode >= 0xe000) {
+            utf8.push(0xe0 | (charCode >> 12), 0x80 | ((charCode >> 6) & 0x3f), 0x80 | (charCode & 0x3f));
+          } else {
+            // surrogate pair
+            i++;
+            charCode = 0x10000 + (((charCode & 0x3ff) << 10) | (str.charCodeAt(i) & 0x3ff));
+            utf8.push(
+              0xf0 | (charCode >> 18),
+              0x80 | ((charCode >> 12) & 0x3f),
+              0x80 | ((charCode >> 6) & 0x3f),
+              0x80 | (charCode & 0x3f)
+            );
+          }
+        }
+        return new Uint8Array(utf8);
+      }
+      encodeInto(str, dest) {
+        const encoded = this.encode(str);
+        const len = Math.min(encoded.length, dest.length);
+        dest.set(encoded.subarray(0, len));
+        return { read: str.length, written: len };
+      }
+    };
+  }
+
+  if (typeof globalThis.TextDecoder === 'undefined') {
+    // Simple UTF-8 only TextDecoder
+    globalThis.TextDecoder = class TextDecoder {
+      constructor(encoding) {
+        this._encoding = encoding || 'utf-8';
+      }
+      get encoding() { return this._encoding; }
+      decode(input) {
+        if (!input) return '';
+        const bytes = input instanceof Uint8Array ? input : new Uint8Array(input);
+        let result = '';
+        let i = 0;
+        while (i < bytes.length) {
+          const byte = bytes[i];
+          if (byte < 0x80) {
+            result += String.fromCharCode(byte);
+            i++;
+          } else if ((byte & 0xe0) === 0xc0) {
+            result += String.fromCharCode(((byte & 0x1f) << 6) | (bytes[i + 1] & 0x3f));
+            i += 2;
+          } else if ((byte & 0xf0) === 0xe0) {
+            result += String.fromCharCode(((byte & 0x0f) << 12) | ((bytes[i + 1] & 0x3f) << 6) | (bytes[i + 2] & 0x3f));
+            i += 3;
+          } else if ((byte & 0xf8) === 0xf0) {
+            const codePoint = ((byte & 0x07) << 18) | ((bytes[i + 1] & 0x3f) << 12) | ((bytes[i + 2] & 0x3f) << 6) | (bytes[i + 3] & 0x3f);
+            // Convert to surrogate pair
+            const offset = codePoint - 0x10000;
+            result += String.fromCharCode(0xd800 + (offset >> 10), 0xdc00 + (offset & 0x3ff));
+            i += 4;
+          } else {
+            result += '?';
+            i++;
+          }
+        }
+        return result;
+      }
+    };
+  }
+
+  // Provide a basic Buffer global if not already defined
+  // This is a minimal implementation - the full buffer polyfill is loaded via require('buffer')
+  if (typeof globalThis.Buffer === 'undefined') {
+    class Buffer extends Uint8Array {
+      static isBuffer(obj) {
+        return obj instanceof Buffer || obj instanceof Uint8Array;
+      }
+
+      static from(value, encodingOrOffset, length) {
+        if (typeof value === 'string') {
+          const encoder = new TextEncoder();
+          const arr = encoder.encode(value);
+          return new Buffer(arr);
+        }
+        if (ArrayBuffer.isView(value)) {
+          return new Buffer(value.buffer, value.byteOffset, value.byteLength);
+        }
+        if (value instanceof ArrayBuffer) {
+          return new Buffer(value);
+        }
+        if (Array.isArray(value)) {
+          return new Buffer(value);
+        }
+        return new Buffer(0);
+      }
+
+      static alloc(size, fill, encoding) {
+        const buf = new Buffer(size);
+        if (fill !== undefined) {
+          buf.fill(typeof fill === 'number' ? fill : 0);
+        }
+        return buf;
+      }
+
+      static allocUnsafe(size) {
+        return new Buffer(size);
+      }
+
+      static concat(list, totalLength) {
+        if (totalLength === undefined) {
+          totalLength = list.reduce((acc, buf) => acc + buf.length, 0);
+        }
+        const result = new Buffer(totalLength);
+        let offset = 0;
+        for (const buf of list) {
+          result.set(buf, offset);
+          offset += buf.length;
+        }
+        return result;
+      }
+
+      static byteLength(string, encoding) {
+        if (typeof string !== 'string') {
+          return string.length;
+        }
+        const encoder = new TextEncoder();
+        return encoder.encode(string).length;
+      }
+
+      toString(encoding, start, end) {
+        const decoder = new TextDecoder(encoding === 'utf8' || encoding === 'utf-8' ? 'utf-8' : 'utf-8');
+        const slice = start !== undefined || end !== undefined
+          ? this.subarray(start || 0, end)
+          : this;
+        return decoder.decode(slice);
+      }
+
+      write(string, offset, length, encoding) {
+        const encoder = new TextEncoder();
+        const bytes = encoder.encode(string);
+        const writeLen = Math.min(bytes.length, length !== undefined ? length : this.length - (offset || 0));
+        this.set(bytes.subarray(0, writeLen), offset || 0);
+        return writeLen;
+      }
+
+      copy(target, targetStart, sourceStart, sourceEnd) {
+        targetStart = targetStart || 0;
+        sourceStart = sourceStart || 0;
+        sourceEnd = sourceEnd || this.length;
+        const bytes = this.subarray(sourceStart, sourceEnd);
+        target.set(bytes, targetStart);
+        return bytes.length;
+      }
+
+      slice(start, end) {
+        return new Buffer(this.buffer, this.byteOffset + (start || 0),
+          (end !== undefined ? end : this.length) - (start || 0));
+      }
+
+      equals(other) {
+        if (this.length !== other.length) return false;
+        for (let i = 0; i < this.length; i++) {
+          if (this[i] !== other[i]) return false;
+        }
+        return true;
+      }
+
+      compare(other) {
+        const len = Math.min(this.length, other.length);
+        for (let i = 0; i < len; i++) {
+          if (this[i] < other[i]) return -1;
+          if (this[i] > other[i]) return 1;
+        }
+        if (this.length < other.length) return -1;
+        if (this.length > other.length) return 1;
+        return 0;
+      }
+
+      fill(value, start, end, encoding) {
+        start = start || 0;
+        end = end !== undefined ? end : this.length;
+        const fillValue = typeof value === 'number' ? value : 0;
+        for (let i = start; i < end; i++) {
+          this[i] = fillValue;
+        }
+        return this;
+      }
+    }
+
+    globalThis.Buffer = Buffer;
+  }
+
   return process;
 })();
 `;
