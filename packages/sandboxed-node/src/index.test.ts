@@ -5,6 +5,7 @@ import {
 	type NetworkAdapter,
 	NodeProcess,
 } from "./index.js";
+import { wrapDirectory } from "./test-utils.js";
 
 /**
  * Create a directory and all its parent directories
@@ -148,7 +149,7 @@ describe("NodeProcess", () => {
 				`module.exports = { add: (a, b) => a + b };`,
 			);
 
-			proc = new NodeProcess({ directory: bridge });
+			proc = new NodeProcess({ filesystem: wrapDirectory(bridge) });
 			const result = await proc.run(`
         const pkg = require('my-pkg');
         module.exports = pkg.add(2, 3);
@@ -172,7 +173,7 @@ describe("NodeProcess", () => {
 				`module.exports = "hello from simple-pkg";`,
 			);
 
-			proc = new NodeProcess({ directory: bridge });
+			proc = new NodeProcess({ filesystem: wrapDirectory(bridge) });
 			const result = await proc.run(`
         const pkg = require('simple-pkg');
         module.exports = pkg;
@@ -196,7 +197,7 @@ describe("NodeProcess", () => {
 				`module.exports = { fake: true };`,
 			);
 
-			proc = new NodeProcess({ directory: bridge });
+			proc = new NodeProcess({ filesystem: wrapDirectory(bridge) });
 			const result = await proc.run(`
         const path = require('path');
         // Real path polyfill has join, our fake doesn't
@@ -206,22 +207,21 @@ describe("NodeProcess", () => {
 			expect(result.exports).toBe(true);
 		});
 
-		it("should use setDirectory to add bridge later", async () => {
+		it("should use setFilesystem to add bridge later", async () => {
 			const dir = new Directory();
-			const bridge = dir;
 
-			await mkdirp(bridge, "/node_modules/late-pkg");
-			await bridge.writeFile(
+			await mkdirp(dir, "/node_modules/late-pkg");
+			await dir.writeFile(
 				"/node_modules/late-pkg/package.json",
 				JSON.stringify({ name: "late-pkg", main: "index.js" }),
 			);
-			await bridge.writeFile(
+			await dir.writeFile(
 				"/node_modules/late-pkg/index.js",
 				`module.exports = 42;`,
 			);
 
 			proc = new NodeProcess();
-			proc.setDirectory(bridge);
+			proc.setFilesystem(wrapDirectory(dir));
 
 			const result = await proc.run(`
         const pkg = require('late-pkg');
@@ -248,7 +248,7 @@ describe("NodeProcess", () => {
 				`const helper = require('./lib/helper'); module.exports = helper.greet();`,
 			);
 
-			proc = new NodeProcess({ directory: bridge });
+			proc = new NodeProcess({ filesystem: wrapDirectory(bridge) });
 			const result = await proc.run(`
         const main = require('/main.js');
         module.exports = main;
@@ -271,7 +271,7 @@ describe("NodeProcess", () => {
 				`const config = require('../config'); module.exports = config.name;`,
 			);
 
-			proc = new NodeProcess({ directory: bridge });
+			proc = new NodeProcess({ filesystem: wrapDirectory(bridge) });
 			const result = await proc.run(`
         const reader = require('/src/utils/reader.js');
         module.exports = reader;
@@ -289,7 +289,7 @@ describe("NodeProcess", () => {
 				JSON.stringify({ version: "1.0.0" }),
 			);
 
-			proc = new NodeProcess({ directory: bridge });
+			proc = new NodeProcess({ filesystem: wrapDirectory(bridge) });
 			const result = await proc.run(`
         const data = require('/data.json');
         module.exports = data.version;
@@ -317,7 +317,7 @@ describe("NodeProcess", () => {
 				`const utils = require('./utils'); module.exports = { calc: x => utils.double(x) };`,
 			);
 
-			proc = new NodeProcess({ directory: bridge });
+			proc = new NodeProcess({ filesystem: wrapDirectory(bridge) });
 			const result = await proc.run(`
         const lib = require('my-lib');
         module.exports = lib.calc(5);
@@ -344,7 +344,7 @@ describe("NodeProcess", () => {
 				`module.exports = { extra: true };`,
 			);
 
-			proc = new NodeProcess({ directory: bridge });
+			proc = new NodeProcess({ filesystem: wrapDirectory(bridge) });
 			const result = await proc.run(`
         const extra = require('toolkit/extra');
         module.exports = extra.extra;
@@ -365,7 +365,7 @@ describe("NodeProcess", () => {
       `,
 			);
 
-			proc = new NodeProcess({ directory: bridge });
+			proc = new NodeProcess({ filesystem: wrapDirectory(bridge) });
 			const result = await proc.run(`
         const c1 = require('/counter.js');
         const c2 = require('/counter.js');
@@ -384,7 +384,7 @@ describe("NodeProcess", () => {
 			const dir = new Directory();
 			const bridge = dir;
 
-			proc = new NodeProcess({ directory: bridge });
+			proc = new NodeProcess({ filesystem: wrapDirectory(bridge) });
 			const result = await proc.run(`
         const fs = require('fs');
         fs.writeFileSync('/test.txt', 'hello world');
@@ -399,7 +399,7 @@ describe("NodeProcess", () => {
 			const bridge = dir;
 			await bridge.writeFile("/existing.txt", "content");
 
-			proc = new NodeProcess({ directory: bridge });
+			proc = new NodeProcess({ filesystem: wrapDirectory(bridge) });
 			const result = await proc.run(`
         const fs = require('fs');
         module.exports = {
@@ -416,7 +416,7 @@ describe("NodeProcess", () => {
 			const bridge = dir;
 			await bridge.writeFile("/myfile.txt", "hello");
 
-			proc = new NodeProcess({ directory: bridge });
+			proc = new NodeProcess({ filesystem: wrapDirectory(bridge) });
 			const result = await proc.run(`
         const fs = require('fs');
         const stats = fs.statSync('/myfile.txt');
@@ -441,7 +441,7 @@ describe("NodeProcess", () => {
 			await bridge.writeFile("/mydir/a.txt", "a");
 			await bridge.writeFile("/mydir/b.txt", "b");
 
-			proc = new NodeProcess({ directory: bridge });
+			proc = new NodeProcess({ filesystem: wrapDirectory(bridge) });
 			const result = await proc.run<string[]>(`
         const fs = require('fs');
         module.exports = fs.readdirSync('/mydir').sort();
@@ -456,7 +456,7 @@ describe("NodeProcess", () => {
 			const bridge = dir;
 			await bridge.writeFile("/todelete.txt", "content");
 
-			proc = new NodeProcess({ directory: bridge });
+			proc = new NodeProcess({ filesystem: wrapDirectory(bridge) });
 			const result = await proc.run(`
         const fs = require('fs');
         const existsBefore = fs.existsSync('/todelete.txt');
@@ -475,7 +475,7 @@ describe("NodeProcess", () => {
 			const dir = new Directory();
 			const bridge = dir;
 
-			proc = new NodeProcess({ directory: bridge });
+			proc = new NodeProcess({ filesystem: wrapDirectory(bridge) });
 			const result = await proc.run(`
         const fs = require('fs');
         const fd = fs.openSync('/fd-test.txt', 'w');
@@ -492,7 +492,7 @@ describe("NodeProcess", () => {
 			const bridge = dir;
 			await bridge.writeFile("/append.txt", "hello");
 
-			proc = new NodeProcess({ directory: bridge });
+			proc = new NodeProcess({ filesystem: wrapDirectory(bridge) });
 			const result = await proc.run(`
         const fs = require('fs');
         fs.appendFileSync('/append.txt', ' world');
@@ -506,7 +506,7 @@ describe("NodeProcess", () => {
 			const dir = new Directory();
 			const bridge = dir;
 
-			proc = new NodeProcess({ directory: bridge });
+			proc = new NodeProcess({ filesystem: wrapDirectory(bridge) });
 			const result = await proc.run(`
         const fs = require('fs');
         fs.mkdirSync('/newdir');
@@ -582,7 +582,7 @@ describe("NodeProcess", () => {
       `,
 			);
 
-			proc = new NodeProcess({ directory: bridge });
+			proc = new NodeProcess({ filesystem: wrapDirectory(bridge) });
 			const result = await proc.exec(`
         import { add, multiply } from '/lib/math.js';
         console.log('add:', add(2, 3));
@@ -607,7 +607,7 @@ describe("NodeProcess", () => {
       `,
 			);
 
-			proc = new NodeProcess({ directory: bridge });
+			proc = new NodeProcess({ filesystem: wrapDirectory(bridge) });
 			const result = await proc.exec(`
         import helper from '/lib/cjs-helper.js';
         console.log(helper.greet('World'));
@@ -643,7 +643,7 @@ describe("NodeProcess", () => {
       `,
 			);
 
-			proc = new NodeProcess({ directory: bridge });
+			proc = new NodeProcess({ filesystem: wrapDirectory(bridge) });
 			const result = await proc.exec(`
         import { valueC } from '/c.js';
         console.log(valueC);
@@ -666,7 +666,7 @@ describe("NodeProcess", () => {
       `,
 			);
 
-			proc = new NodeProcess({ directory: bridge });
+			proc = new NodeProcess({ filesystem: wrapDirectory(bridge) });
 			const result = await proc.exec(`
         import constants, { PI, E } from '/mixed.js';
         console.log('name:', constants.name);
@@ -709,7 +709,7 @@ describe("NodeProcess", () => {
 				JSON.stringify({ debug: true, version: "1.0.0" }),
 			);
 
-			proc = new NodeProcess({ directory: bridge });
+			proc = new NodeProcess({ filesystem: wrapDirectory(bridge) });
 			const result = await proc.exec(`
         import config from '/config.json';
         console.log('debug:', config.debug);
@@ -748,7 +748,7 @@ describe("NodeProcess", () => {
       `,
 			);
 
-			proc = new NodeProcess({ directory: bridge });
+			proc = new NodeProcess({ filesystem: wrapDirectory(bridge) });
 			const result = await proc.exec(`
         async function main() {
           const utils = await import('/lib/utils.js');
@@ -770,7 +770,7 @@ describe("NodeProcess", () => {
 			await bridge.writeFile("/a.js", `export const name = 'module-a';`);
 			await bridge.writeFile("/b.js", `export const name = 'module-b';`);
 
-			proc = new NodeProcess({ directory: bridge });
+			proc = new NodeProcess({ filesystem: wrapDirectory(bridge) });
 			const result = await proc.exec(`
         async function loadModule(useA) {
           if (useA) {
@@ -806,7 +806,7 @@ describe("NodeProcess", () => {
       `,
 			);
 
-			proc = new NodeProcess({ directory: bridge });
+			proc = new NodeProcess({ filesystem: wrapDirectory(bridge) });
 			const result = await proc.exec(`
         async function main() {
           const mod = await import('/lib/cjs-mod.js');
@@ -1986,7 +1986,7 @@ describe("NodeProcess", () => {
 			);
 			await directory.writeFile("/app/package.json", "{}");
 
-			proc = new NodeProcess({ directory });
+			proc = new NodeProcess({ filesystem: wrapDirectory(directory) });
 
 			const result = await proc.run(`
         const { createRequire } = require('module');
@@ -2003,7 +2003,7 @@ describe("NodeProcess", () => {
 			await directory.createDir("/app");
 			await directory.writeFile("/app/mod.js", "module.exports = 42;");
 
-			proc = new NodeProcess({ directory });
+			proc = new NodeProcess({ filesystem: wrapDirectory(directory) });
 
 			const result = await proc.run(`
         const { createRequire } = require('module');
@@ -2021,7 +2021,7 @@ describe("NodeProcess", () => {
 			await directory.writeFile("/a/mod.js", "module.exports = { count: 0 };");
 			await directory.writeFile("/b/index.js", "");
 
-			proc = new NodeProcess({ directory });
+			proc = new NodeProcess({ filesystem: wrapDirectory(directory) });
 
 			const result = await proc.run(`
         const { createRequire } = require('module');
@@ -2044,7 +2044,7 @@ describe("NodeProcess", () => {
 			await mkdirp(directory, "/app/lib");
 			await directory.writeFile("/app/lib/util.js", "module.exports = {};");
 
-			proc = new NodeProcess({ directory });
+			proc = new NodeProcess({ filesystem: wrapDirectory(directory) });
 
 			const result = await proc.run(`
         const { createRequire } = require('module');
@@ -2265,7 +2265,7 @@ describe("NodeProcess", () => {
 			);
 
 			proc = new NodeProcess({
-				directory,
+				filesystem: wrapDirectory(directory),
 				processConfig: { cwd: "/app" },
 			});
 
@@ -2452,7 +2452,7 @@ describe("NodeProcess", () => {
 			);
 
 			proc = new NodeProcess({
-				directory,
+				filesystem: wrapDirectory(directory),
 				processConfig: { cwd: "/app" },
 			});
 
@@ -2511,7 +2511,7 @@ describe("NodeProcess", () => {
 			);
 
 			proc = new NodeProcess({
-				directory,
+				filesystem: wrapDirectory(directory),
 				processConfig: { cwd: "/app" },
 			});
 
@@ -2594,7 +2594,7 @@ describe("NodeProcess", () => {
 			);
 
 			proc = new NodeProcess({
-				directory,
+				filesystem: wrapDirectory(directory),
 				processConfig: { cwd: "/project" },
 				osConfig: { platform: "darwin", arch: "arm64" },
 			});

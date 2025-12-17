@@ -2,15 +2,17 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Directory, init } from "@wasmer/sdk/node";
-import { NodeProcess } from "sandboxed-node";
+import { NodeProcess, type VirtualFileSystem } from "sandboxed-node";
 import { SystemBridge } from "../system-bridge/index.js";
 import {
 	DATA_MOUNT_PATH,
 	InteractiveSession,
 	WasixInstance,
 } from "../wasix/index.js";
+import { createVirtualFileSystem } from "./virtual-filesystem.js";
 
 export { WasixInstance, InteractiveSession, Directory, DATA_MOUNT_PATH };
+export type { VirtualFileSystem };
 
 export interface SpawnResult {
 	stdout: string;
@@ -58,7 +60,7 @@ export class VirtualMachine {
 		// Create NodeProcess with access to virtual filesystem
 		this.nodeProcess = new NodeProcess({
 			memoryLimit: this.options.memoryLimit,
-			directory: this.bridge.getDirectory(),
+			filesystem: createVirtualFileSystem(this.bridge.getDirectory()),
 		});
 
 		// Create WasixInstance sharing the same filesystem

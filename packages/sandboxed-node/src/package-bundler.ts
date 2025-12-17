@@ -1,4 +1,4 @@
-import type { Directory } from "@wasmer/sdk/node";
+import type { VirtualFileSystem } from "./types.js";
 import { exists, stat } from "./fs-helpers.js";
 
 // Path utilities (since we can't use node:path in a way that works in isolate)
@@ -32,11 +32,11 @@ function join(...parts: string[]): string {
 export async function resolveModule(
 	request: string,
 	fromDir: string,
-	directory: Directory,
+	fs: VirtualFileSystem,
 ): Promise<string | null> {
 	// Absolute paths - resolve directly
 	if (request.startsWith("/")) {
-		return resolveAbsolute(request, directory);
+		return resolveAbsolute(request, fs);
 	}
 
 	// Relative imports (including bare '.' and '..')
@@ -46,11 +46,11 @@ export async function resolveModule(
 		request === "." ||
 		request === ".."
 	) {
-		return resolveRelative(request, fromDir, directory);
+		return resolveRelative(request, fromDir, fs);
 	}
 
 	// Bare imports - walk up node_modules
-	return resolveNodeModules(request, fromDir, directory);
+	return resolveNodeModules(request, fromDir, fs);
 }
 
 /**
@@ -58,31 +58,31 @@ export async function resolveModule(
  */
 async function resolveAbsolute(
 	request: string,
-	directory: Directory,
+	fs: VirtualFileSystem,
 ): Promise<string | null> {
 	// First check if the exact path exists and is a file
 	try {
-		const statInfo = await stat(directory, request);
+		const statInfo = await stat(fs, request);
 		if (!statInfo.isDirectory) {
 			return request;
 		}
 		// It's a directory - look for main entry
 		const pkgJsonPath = join(request, "package.json");
-		if (await exists(directory, pkgJsonPath)) {
-			const pkgJson = JSON.parse(await directory.readTextFile(pkgJsonPath));
+		if (await exists(fs, pkgJsonPath)) {
+			const pkgJson = JSON.parse(await fs.readTextFile(pkgJsonPath));
 			const main = pkgJson.main || "index.js";
 			const mainPath = join(request, main);
-			if (await exists(directory, mainPath)) {
+			if (await exists(fs, mainPath)) {
 				return mainPath;
 			}
 		}
 		// Check for index.js
 		const indexPath = join(request, "index.js");
-		if (await exists(directory, indexPath)) {
+		if (await exists(fs, indexPath)) {
 			return indexPath;
 		}
 		const indexJsonPath = join(request, "index.json");
-		if (await exists(directory, indexJsonPath)) {
+		if (await exists(fs, indexJsonPath)) {
 			return indexJsonPath;
 		}
 	} catch {
@@ -93,7 +93,7 @@ async function resolveAbsolute(
 	const extensions = [".js", ".json"];
 	for (const ext of extensions) {
 		const withExt = request + ext;
-		if (await exists(directory, withExt)) {
+		if (await exists(fs, withExt)) {
 			return withExt;
 		}
 	}
@@ -107,33 +107,33 @@ async function resolveAbsolute(
 async function resolveRelative(
 	request: string,
 	fromDir: string,
-	directory: Directory,
+	fs: VirtualFileSystem,
 ): Promise<string | null> {
 	const basePath = join(fromDir, request);
 
 	// First check if the exact path exists and is a file
 	try {
-		const statInfo = await stat(directory, basePath);
+		const statInfo = await stat(fs, basePath);
 		if (!statInfo.isDirectory) {
 			return basePath;
 		}
 		// It's a directory - look for main entry
 		const pkgJsonPath = join(basePath, "package.json");
-		if (await exists(directory, pkgJsonPath)) {
-			const pkgJson = JSON.parse(await directory.readTextFile(pkgJsonPath));
+		if (await exists(fs, pkgJsonPath)) {
+			const pkgJson = JSON.parse(await fs.readTextFile(pkgJsonPath));
 			const main = pkgJson.main || "index.js";
 			const mainPath = join(basePath, main);
-			if (await exists(directory, mainPath)) {
+			if (await exists(fs, mainPath)) {
 				return mainPath;
 			}
 		}
 		// Check for index.js
 		const indexPath = join(basePath, "index.js");
-		if (await exists(directory, indexPath)) {
+		if (await exists(fs, indexPath)) {
 			return indexPath;
 		}
 		const indexJsonPath = join(basePath, "index.json");
-		if (await exists(directory, indexJsonPath)) {
+		if (await exists(fs, indexJsonPath)) {
 			return indexJsonPath;
 		}
 	} catch {
@@ -144,7 +144,7 @@ async function resolveRelative(
 	const extensions = [".js", ".json"];
 	for (const ext of extensions) {
 		const withExt = basePath + ext;
-		if (await exists(directory, withExt)) {
+		if (await exists(fs, withExt)) {
 			return withExt;
 		}
 	}
@@ -158,7 +158,7 @@ async function resolveRelative(
 async function resolveNodeModules(
 	request: string,
 	fromDir: string,
-	directory: Directory,
+	fs: VirtualFileSystem,
 ): Promise<string | null> {
 	// Handle scoped packages: @scope/package
 	let packageName: string;
@@ -190,14 +190,14 @@ async function resolveNodeModules(
 		const packageDir = join(dir, "node_modules", packageName);
 		const pkgJsonPath = join(packageDir, "package.json");
 
-		if (await exists(directory, pkgJsonPath)) {
+		if (await exists(fs, pkgJsonPath)) {
 			if (subpath) {
 				// Direct file reference: require("lodash/get")
-				return resolveRelative(`./${subpath}`, packageDir, directory);
+				return resolveRelative(`./${subpath}`, packageDir, fs);
 			}
 
 			// Main entry point
-			const pkgJson = JSON.parse(await directory.readTextFile(pkgJsonPath));
+			const pkgJson = JSON.parse(await fs.readTextFile(pkgJsonPath));
 			const main = pkgJson.main || "index.js";
 
 			// Normalize main path (remove leading ./ and trailing /)
@@ -206,15 +206,15 @@ async function resolveNodeModules(
 
 			// Check if mainPath is a directory
 			try {
-				const statInfo = await stat(directory, mainPath);
+				const statInfo = await stat(fs, mainPath);
 				if (statInfo.isDirectory) {
 					// It's a directory - look for index.js
 					const indexPath = join(mainPath, "index.js");
-					if (await exists(directory, indexPath)) {
+					if (await exists(fs, indexPath)) {
 						return indexPath;
 					}
 					const indexJsonPath = join(mainPath, "index.json");
-					if (await exists(directory, indexJsonPath)) {
+					if (await exists(fs, indexJsonPath)) {
 						return indexJsonPath;
 					}
 				} else {
@@ -240,7 +240,7 @@ async function resolveNodeModules(
 			}
 
 			for (const candidate of mainCandidates) {
-				if (await exists(directory, candidate)) {
+				if (await exists(fs, candidate)) {
 					return candidate;
 				}
 			}
@@ -253,12 +253,12 @@ async function resolveNodeModules(
 	const rootPackageDir = join("/node_modules", packageName);
 	const rootPkgJsonPath = join(rootPackageDir, "package.json");
 
-	if (await exists(directory, rootPkgJsonPath)) {
+	if (await exists(fs, rootPkgJsonPath)) {
 		if (subpath) {
-			return resolveRelative(`./${subpath}`, rootPackageDir, directory);
+			return resolveRelative(`./${subpath}`, rootPackageDir, fs);
 		}
 
-		const pkgJson = JSON.parse(await directory.readTextFile(rootPkgJsonPath));
+		const pkgJson = JSON.parse(await fs.readTextFile(rootPkgJsonPath));
 		const main = pkgJson.main || "index.js";
 
 		// Normalize main path (remove leading ./ and trailing /)
@@ -267,14 +267,14 @@ async function resolveNodeModules(
 
 		// Check if mainPath is a directory
 		try {
-			const statInfo = await stat(directory, mainPath);
+			const statInfo = await stat(fs, mainPath);
 			if (statInfo.isDirectory) {
 				const indexPath = join(mainPath, "index.js");
-				if (await exists(directory, indexPath)) {
+				if (await exists(fs, indexPath)) {
 					return indexPath;
 				}
 				const indexJsonPath = join(mainPath, "index.json");
-				if (await exists(directory, indexJsonPath)) {
+				if (await exists(fs, indexJsonPath)) {
 					return indexJsonPath;
 				}
 			} else {
@@ -287,7 +287,7 @@ async function resolveNodeModules(
 		const mainCandidates = [`${mainPath}.js`, `${mainPath}/index.js`];
 
 		for (const candidate of mainCandidates) {
-			if (await exists(directory, candidate)) {
+			if (await exists(fs, candidate)) {
 				return candidate;
 			}
 		}
@@ -301,10 +301,10 @@ async function resolveNodeModules(
  */
 export async function loadFile(
 	path: string,
-	directory: Directory,
+	fs: VirtualFileSystem,
 ): Promise<string | null> {
 	try {
-		return await directory.readTextFile(path);
+		return await fs.readTextFile(path);
 	} catch {
 		return null;
 	}
@@ -316,16 +316,16 @@ export async function loadFile(
  */
 export async function bundlePackage(
 	packageName: string,
-	directory: Directory,
+	fs: VirtualFileSystem,
 ): Promise<string | null> {
 	// Resolve the package entry point
-	const entryPath = await resolveNodeModules(packageName, "/", directory);
+	const entryPath = await resolveNodeModules(packageName, "/", fs);
 	if (!entryPath) {
 		return null;
 	}
 
 	try {
-		const entryCode = await directory.readTextFile(entryPath);
+		const entryCode = await fs.readTextFile(entryPath);
 
 		// Wrap the code in an IIFE that sets up module.exports
 		const wrappedCode = `(function() {

@@ -1,15 +1,15 @@
 import * as dns from "node:dns";
 import * as https from "node:https";
 import * as zlib from "node:zlib";
-import type { Directory } from "@wasmer/sdk/node";
 import ivm from "isolated-vm";
 import { FS_MODULE_CODE, getBridgeWithConfig } from "./bridge-loader.js";
 import { exists, mkdir, readDirWithTypes, rename, stat } from "./fs-helpers.js";
 import { loadFile, resolveModule } from "./package-bundler.js";
 import { bundlePolyfill, hasPolyfill } from "./polyfills.js";
+import type { VirtualFileSystem } from "./types.js";
 
 // Re-export types
-export type { Directory } from "@wasmer/sdk/node";
+export type { VirtualFileSystem } from "./types.js";
 export type { DirEntry, StatInfo } from "./fs-helpers.js";
 
 // Config types for process and os modules
@@ -230,7 +230,7 @@ export function createDefaultNetworkAdapter(): NetworkAdapter {
 
 export interface NodeProcessOptions {
 	memoryLimit?: number; // MB, default 128
-	directory?: Directory; // For accessing virtual filesystem
+	filesystem?: VirtualFileSystem; // For accessing virtual filesystem
 	processConfig?: ProcessConfig; // Process object configuration
 	commandExecutor?: CommandExecutor; // For child_process support (e.g., WasixInstance)
 	networkAdapter?: NetworkAdapter; // For network support (fetch, http, https, dns)
@@ -315,7 +315,7 @@ const polyfillCodeCache: Map<string, string> = new Map();
 export class NodeProcess {
 	private isolate: ivm.Isolate;
 	private memoryLimit: number;
-	private directory?: Directory;
+	private filesystem?: VirtualFileSystem;
 	private processConfig: ProcessConfig;
 	private commandExecutor?: CommandExecutor;
 	private networkAdapter?: NetworkAdapter;
@@ -326,7 +326,7 @@ export class NodeProcess {
 	constructor(options: NodeProcessOptions = {}) {
 		this.memoryLimit = options.memoryLimit ?? 128;
 		this.isolate = new ivm.Isolate({ memoryLimit: this.memoryLimit });
-		this.directory = options.directory;
+		this.filesystem = options.filesystem;
 		this.processConfig = options.processConfig ?? {};
 		this.commandExecutor = options.commandExecutor;
 		this.networkAdapter = options.networkAdapter;
@@ -348,10 +348,10 @@ export class NodeProcess {
 	}
 
 	/**
-	 * Set the Directory for filesystem access
+	 * Set the filesystem for file access
 	 */
-	setDirectory(directory: Directory): void {
-		this.directory = directory;
+	setFilesystem(filesystem: VirtualFileSystem): void {
+		this.filesystem = filesystem;
 	}
 
 	/**
@@ -402,11 +402,11 @@ export class NodeProcess {
 		}
 
 		// Bare specifier - try to resolve from node_modules
-		if (!this.directory) {
+		if (!this.filesystem) {
 			return null;
 		}
 
-		return resolveModule(specifier, referrerDir, this.directory);
+		return resolveModule(specifier, referrerDir, this.filesystem);
 	}
 
 	/**
@@ -484,10 +484,10 @@ export class NodeProcess {
 			}
 		} else {
 			// Load from filesystem
-			if (!this.directory) {
-				throw new Error("Directory required for loading modules");
+			if (!this.filesystem) {
+				throw new Error("VirtualFileSystem required for loading modules");
 			}
-			const source = await loadFile(filePath, this.directory);
+			const source = await loadFile(filePath, this.filesystem);
 			if (source === null) {
 				throw new Error(`Cannot load module: ${filePath}`);
 			}
@@ -722,10 +722,10 @@ export class NodeProcess {
 		// Create a reference for resolving module paths
 		const resolveModuleRef = new ivm.Reference(
 			async (request: string, fromDir: string): Promise<string | null> => {
-				if (!this.directory) {
+				if (!this.filesystem) {
 					return null;
 				}
-				return resolveModule(request, fromDir, this.directory);
+				return resolveModule(request, fromDir, this.filesystem);
 			},
 		);
 
@@ -733,10 +733,10 @@ export class NodeProcess {
 		// Also transforms dynamic import() calls to __dynamicImport()
 		const loadFileRef = new ivm.Reference(
 			async (path: string): Promise<string | null> => {
-				if (!this.directory) {
+				if (!this.filesystem) {
 					return null;
 				}
-				const source = await loadFile(path, this.directory);
+				const source = await loadFile(path, this.filesystem);
 				if (source === null) {
 					return null;
 				}
@@ -759,22 +759,22 @@ export class NodeProcess {
 		});
 		await jail.set("_scheduleTimer", scheduleTimerRef);
 
-		// Set up fs References if we have a Directory
-		if (this.directory) {
-			const directory = this.directory;
+		// Set up fs References if we have a filesystem
+		if (this.filesystem) {
+			const fs = this.filesystem;
 
 			// Create individual References for each fs operation
 			const readFileRef = new ivm.Reference(async (path: string) => {
-				return directory.readTextFile(path);
+				return fs.readTextFile(path);
 			});
 			const writeFileRef = new ivm.Reference(
 				(path: string, content: string) => {
-					directory.writeFile(path, content);
+					fs.writeFile(path, content);
 				},
 			);
 			// Binary file operations using base64 encoding
 			const readFileBinaryRef = new ivm.Reference(async (path: string) => {
-				const data = await directory.readFile(path);
+				const data = await fs.readFile(path);
 				// Convert to base64 for transfer across isolate boundary
 				return Buffer.from(data).toString("base64");
 			});
@@ -782,25 +782,25 @@ export class NodeProcess {
 				(path: string, base64Content: string) => {
 					// Decode base64 and write as binary
 					const data = Buffer.from(base64Content, "base64");
-					directory.writeFile(path, data);
+					fs.writeFile(path, data);
 				},
 			);
 			const readDirRef = new ivm.Reference(async (path: string) => {
-				const entries = await readDirWithTypes(directory, path);
+				const entries = await readDirWithTypes(fs, path);
 				// Return as JSON string for transfer
 				return JSON.stringify(entries);
 			});
 			const mkdirRef = new ivm.Reference((path: string) => {
-				mkdir(directory, path);
+				mkdir(fs, path);
 			});
 			const rmdirRef = new ivm.Reference(async (path: string) => {
-				await directory.removeDir(path);
+				await fs.removeDir(path);
 			});
 			const existsRef = new ivm.Reference(async (path: string) => {
-				return exists(directory, path);
+				return exists(fs, path);
 			});
 			const statRef = new ivm.Reference(async (path: string) => {
-				const statInfo = await stat(directory, path);
+				const statInfo = await stat(fs, path);
 				// Return as JSON string for transfer
 				return JSON.stringify({
 					mode: statInfo.mode,
@@ -813,11 +813,11 @@ export class NodeProcess {
 				});
 			});
 			const unlinkRef = new ivm.Reference(async (path: string) => {
-				await directory.removeFile(path);
+				await fs.removeFile(path);
 			});
 			const renameRef = new ivm.Reference(
 				async (oldPath: string, newPath: string) => {
-					await rename(directory, oldPath, newPath);
+					await rename(fs, oldPath, newPath);
 				},
 			);
 
@@ -1525,44 +1525,44 @@ export class NodeProcess {
 		context: ivm.Context,
 		jail: ivm.Reference<Record<string, unknown>>,
 	): Promise<void> {
-		// Set up fs references if we have a Directory (needed for fs import)
-		if (this.directory) {
-			const directory = this.directory;
+		// Set up fs references if we have a filesystem (needed for fs import)
+		if (this.filesystem) {
+			const fs = this.filesystem;
 
 			const readFileRef = new ivm.Reference(async (path: string) => {
-				return directory.readTextFile(path);
+				return fs.readTextFile(path);
 			});
 			const writeFileRef = new ivm.Reference(
 				(path: string, content: string) => {
-					directory.writeFile(path, content);
+					fs.writeFile(path, content);
 				},
 			);
 			// Binary file operations using base64 encoding
 			const readFileBinaryRef = new ivm.Reference(async (path: string) => {
-				const data = await directory.readFile(path);
+				const data = await fs.readFile(path);
 				return Buffer.from(data).toString("base64");
 			});
 			const writeFileBinaryRef = new ivm.Reference(
 				(path: string, base64Content: string) => {
 					const data = Buffer.from(base64Content, "base64");
-					directory.writeFile(path, data);
+					fs.writeFile(path, data);
 				},
 			);
 			const readDirRef = new ivm.Reference(async (path: string) => {
-				const entries = await readDirWithTypes(directory, path);
+				const entries = await readDirWithTypes(fs, path);
 				return JSON.stringify(entries);
 			});
 			const mkdirRef = new ivm.Reference((path: string) => {
-				mkdir(directory, path);
+				mkdir(fs, path);
 			});
 			const rmdirRef = new ivm.Reference(async (path: string) => {
-				await directory.removeDir(path);
+				await fs.removeDir(path);
 			});
 			const existsRef = new ivm.Reference(async (path: string) => {
-				return exists(directory, path);
+				return exists(fs, path);
 			});
 			const statRef = new ivm.Reference(async (path: string) => {
-				const statInfo = await stat(directory, path);
+				const statInfo = await stat(fs, path);
 				return JSON.stringify({
 					mode: statInfo.mode,
 					size: statInfo.size,
@@ -1574,11 +1574,11 @@ export class NodeProcess {
 				});
 			});
 			const unlinkRef = new ivm.Reference(async (path: string) => {
-				await directory.removeFile(path);
+				await fs.removeFile(path);
 			});
 			const renameRef = new ivm.Reference(
 				async (oldPath: string, newPath: string) => {
-					await rename(directory, oldPath, newPath);
+					await rename(fs, oldPath, newPath);
 				},
 			);
 

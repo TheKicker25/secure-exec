@@ -1,4 +1,4 @@
-import type { Directory } from "@wasmer/sdk/node";
+import type { VirtualFileSystem } from "./types.js";
 
 export interface DirEntry {
 	name: string;
@@ -20,18 +20,18 @@ const S_IFREG = 32768; // Regular file
 const S_IFDIR = 16384; // Directory
 
 /**
- * Check if a path exists in the directory
+ * Check if a path exists in the filesystem
  */
 export async function exists(
-	directory: Directory,
+	fs: VirtualFileSystem,
 	path: string,
 ): Promise<boolean> {
 	try {
-		await directory.readFile(path);
+		await fs.readFile(path);
 		return true;
 	} catch {
 		try {
-			await directory.readDir(path);
+			await fs.readDir(path);
 			return true;
 		} catch {
 			return false;
@@ -43,14 +43,14 @@ export async function exists(
  * Get file/directory stats
  */
 export async function stat(
-	directory: Directory,
+	fs: VirtualFileSystem,
 	path: string,
 ): Promise<StatInfo> {
 	const now = Date.now();
 
 	// Try to read as file first
 	try {
-		const content = await directory.readFile(path);
+		const content = await fs.readFile(path);
 		return {
 			mode: S_IFREG | 0o644,
 			size: content.length,
@@ -63,7 +63,7 @@ export async function stat(
 	} catch {
 		// Not a file, try as directory
 		try {
-			await directory.readDir(path);
+			await fs.readDir(path);
 			return {
 				mode: S_IFDIR | 0o755,
 				size: 4096,
@@ -83,23 +83,23 @@ export async function stat(
  * Rename/move a file
  */
 export async function rename(
-	directory: Directory,
+	fs: VirtualFileSystem,
 	oldPath: string,
 	newPath: string,
 ): Promise<void> {
-	const content = await directory.readFile(oldPath);
-	await directory.writeFile(newPath, content);
-	await directory.removeFile(oldPath);
+	const content = await fs.readFile(oldPath);
+	fs.writeFile(newPath, content);
+	await fs.removeFile(oldPath);
 }
 
 /**
  * Read directory with type info
  */
 export async function readDirWithTypes(
-	directory: Directory,
+	fs: VirtualFileSystem,
 	path: string,
 ): Promise<DirEntry[]> {
-	const entries = await directory.readDir(path);
+	const entries = await fs.readDir(path);
 	const results: DirEntry[] = [];
 
 	for (const entry of entries) {
@@ -109,7 +109,7 @@ export async function readDirWithTypes(
 
 		let isDir = false;
 		try {
-			await directory.readDir(entryPath);
+			await fs.readDir(entryPath);
 			isDir = true;
 		} catch {
 			// It's a file
@@ -124,7 +124,7 @@ export async function readDirWithTypes(
 /**
  * Create a directory (recursively creates parent directories)
  */
-export function mkdir(directory: Directory, path: string): void {
+export function mkdir(fs: VirtualFileSystem, path: string): void {
 	const normalizedPath = path.startsWith("/") ? path : `/${path}`;
 	const parts = normalizedPath.split("/").filter(Boolean);
 
@@ -132,12 +132,7 @@ export function mkdir(directory: Directory, path: string): void {
 	for (const part of parts) {
 		currentPath += `/${part}`;
 		try {
-			const result = directory.createDir(currentPath);
-			if (result && typeof (result as Promise<void>).catch === "function") {
-				(result as Promise<void>).catch(() => {
-					// Directory might already exist, ignore error
-				});
-			}
+			fs.createDir(currentPath);
 		} catch {
 			// Directory might already exist, ignore error
 		}

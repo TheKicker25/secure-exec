@@ -4,6 +4,7 @@ import { Directory, init } from "@wasmer/sdk/node";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { exists as fsExists } from "./fs-helpers.js";
 import { createDefaultNetworkAdapter, NodeProcess } from "./index.js";
+import { wrapDirectory } from "./test-utils.js";
 
 // Find npm installation path - use the archived npm from nanosandbox assets
 const NPM_PATH = path.resolve(__dirname, "../../nanosandbox/assets/npm");
@@ -146,7 +147,7 @@ describe.skipIf(!npmAssetsAvailable)("NPM CLI Integration", () => {
 				await sb.writeFile("/opt/homebrew/etc/npmrc", "");
 
 				proc = new NodeProcess({
-					directory: sb,
+					filesystem: wrapDirectory(sb),
 					processConfig: {
 						cwd: "/app",
 						env: {
@@ -278,7 +279,7 @@ describe.skipIf(!npmAssetsAvailable)("NPM CLI Integration", () => {
 				};
 
 				proc = new NodeProcess({
-					directory: sb,
+					filesystem: wrapDirectory(sb),
 					commandExecutor: mockCommandExecutor,
 					processConfig: {
 						cwd: "/app",
@@ -421,7 +422,7 @@ describe.skipIf(!npmAssetsAvailable)("NPM CLI Integration", () => {
 				};
 
 				proc = new NodeProcess({
-					directory: sb,
+					filesystem: wrapDirectory(sb),
 					commandExecutor: mockCommandExecutor,
 					networkAdapter: createDefaultNetworkAdapter(),
 					processConfig: {
@@ -542,7 +543,7 @@ describe.skipIf(!npmAssetsAvailable)("NPM CLI Integration", () => {
 				};
 
 				proc = new NodeProcess({
-					directory: sb,
+					filesystem: wrapDirectory(sb),
 					commandExecutor: mockCommandExecutor,
 					networkAdapter: createDefaultNetworkAdapter(),
 					processConfig: {
@@ -587,16 +588,16 @@ describe.skipIf(!npmAssetsAvailable)("NPM CLI Integration", () => {
 				// Debug: Check if validate-npm-package-license and dependencies exist
 				const validatePath =
 					"/usr/lib/node_modules/npm/node_modules/validate-npm-package-license/package.json";
-				const validateExists = await fsExists(sb, validatePath);
+				const validateExists = await fsExists(wrapDirectory(sb), validatePath);
 				console.log("validate-npm-package-license exists:", validateExists);
 
 				const spdxIdsPath =
 					"/usr/lib/node_modules/npm/node_modules/spdx-license-ids/package.json";
-				const spdxIdsExists = await fsExists(sb, spdxIdsPath);
+				const spdxIdsExists = await fsExists(wrapDirectory(sb), spdxIdsPath);
 				console.log("spdx-license-ids exists:", spdxIdsExists);
 
 				// Check that package.json was created
-				const pkgJsonExists = await fsExists(sb, "/app/package.json");
+				const pkgJsonExists = await fsExists(wrapDirectory(sb), "/app/package.json");
 				expect(pkgJsonExists).toBe(true);
 
 				// Read and verify the package.json content
@@ -682,7 +683,7 @@ describe.skipIf(!npmAssetsAvailable)("NPM CLI Integration", () => {
 				};
 
 				proc = new NodeProcess({
-					directory: sb,
+					filesystem: wrapDirectory(sb),
 					commandExecutor: mockCommandExecutor,
 					networkAdapter: createDefaultNetworkAdapter(),
 					processConfig: {
@@ -805,7 +806,7 @@ describe.skipIf(!npmAssetsAvailable)("NPM CLI Integration", () => {
 				};
 
 				proc = new NodeProcess({
-					directory: sb,
+					filesystem: wrapDirectory(sb),
 					commandExecutor: mockCommandExecutor,
 					networkAdapter: createDefaultNetworkAdapter(),
 					processConfig: {
@@ -945,7 +946,7 @@ describe.skipIf(!npmAssetsAvailable)("NPM CLI Integration", () => {
 				};
 
 				proc = new NodeProcess({
-					directory: sb,
+					filesystem: wrapDirectory(sb),
 					commandExecutor: mockCommandExecutor,
 					networkAdapter: createDefaultNetworkAdapter(),
 					processConfig: {
@@ -1022,13 +1023,13 @@ describe.skipIf(!npmAssetsAvailable)("NPM CLI Integration", () => {
 
 				// npm pack should create a tarball file
 				const tarballExists = await fsExists(
-					sb,
+					wrapDirectory(sb),
 					"/app/test-pack-app-1.0.0.tgz",
 				);
 				console.log("Tarball exists:", tarballExists);
 
 				// Also check if package.json still exists
-				const pkgJsonExists = await fsExists(sb, "/app/package.json");
+				const pkgJsonExists = await fsExists(wrapDirectory(sb), "/app/package.json");
 				console.log("package.json exists:", pkgJsonExists);
 
 				// For now, just verify npm pack runs and produces some output
@@ -1119,7 +1120,7 @@ describe.skipIf(!npmAssetsAvailable)("NPM CLI Integration", () => {
 				);
 
 				proc = new NodeProcess({
-					directory: sb,
+					filesystem: wrapDirectory(sb),
 					commandExecutor: mockCommandExecutor,
 					networkAdapter: createDefaultNetworkAdapter(),
 					processConfig: {
@@ -1161,18 +1162,18 @@ describe.skipIf(!npmAssetsAvailable)("NPM CLI Integration", () => {
 				console.log("code:", result.code);
 
 				// Check if node_modules was created
-				const nodeModulesExists = await fsExists(sb, "/app/node_modules");
+				const nodeModulesExists = await fsExists(wrapDirectory(sb), "/app/node_modules");
 				console.log("node_modules exists:", nodeModulesExists);
 
 				// Check if package was installed
 				const isNumberExists = await fsExists(
-					sb,
+					wrapDirectory(sb),
 					"/app/node_modules/is-number",
 				);
 				console.log("is-number exists:", isNumberExists);
 
 				// Check if package-lock.json was created
-				const lockfileExists = await fsExists(sb, "/app/package-lock.json");
+				const lockfileExists = await fsExists(wrapDirectory(sb), "/app/package-lock.json");
 				console.log("package-lock.json exists:", lockfileExists);
 
 				// npm install starts and makes network requests

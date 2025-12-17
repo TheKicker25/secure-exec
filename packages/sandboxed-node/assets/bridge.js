@@ -6245,6 +6245,16 @@ var bridge = (() => {
     if (path instanceof URL) return path.pathname;
     return String(path);
   }
+  var DATA_MOUNT_PATH = "/data";
+  function normalizePathForDirectory(path) {
+    if (path.startsWith(DATA_MOUNT_PATH + "/")) {
+      return path.slice(DATA_MOUNT_PATH.length);
+    }
+    if (path === DATA_MOUNT_PATH) {
+      return "/";
+    }
+    return path;
+  }
   var fs = {
     // Constants
     constants: {
@@ -6302,8 +6312,9 @@ var bridge = (() => {
     Dirent,
     // Sync methods
     readFileSync(path, options) {
-      const pathStr = typeof path === "number" ? fdTable.get(path)?.path : toPathString(path);
-      if (!pathStr) throw createFsError("EBADF", "EBADF: bad file descriptor", "read");
+      const rawPath = typeof path === "number" ? fdTable.get(path)?.path : toPathString(path);
+      if (!rawPath) throw createFsError("EBADF", "EBADF: bad file descriptor", "read");
+      const pathStr = normalizePathForDirectory(rawPath);
       const encoding = typeof options === "string" ? options : options?.encoding;
       try {
         if (encoding) {
@@ -6318,17 +6329,18 @@ var bridge = (() => {
         if (errMsg.includes("entry not found") || errMsg.includes("not found")) {
           throw createFsError(
             "ENOENT",
-            `ENOENT: no such file or directory, read '${pathStr}'`,
+            `ENOENT: no such file or directory, read '${rawPath}'`,
             "read",
-            pathStr
+            rawPath
           );
         }
         throw err;
       }
     },
     writeFileSync(file, data, _options) {
-      const pathStr = typeof file === "number" ? fdTable.get(file)?.path : toPathString(file);
-      if (!pathStr) throw createFsError("EBADF", "EBADF: bad file descriptor", "write");
+      const rawPath = typeof file === "number" ? fdTable.get(file)?.path : toPathString(file);
+      if (!rawPath) throw createFsError("EBADF", "EBADF: bad file descriptor", "write");
+      const pathStr = normalizePathForDirectory(rawPath);
       if (typeof data === "string") {
         _fs.writeFile.applySync(void 0, [pathStr, data]);
       } else if (ArrayBuffer.isView(data)) {
@@ -6345,7 +6357,8 @@ var bridge = (() => {
       fs.writeFileSync(path, existing + content, options);
     },
     readdirSync(path, options) {
-      const pathStr = toPathString(path);
+      const rawPath = toPathString(path);
+      const pathStr = normalizePathForDirectory(rawPath);
       let entriesJson;
       try {
         entriesJson = _fs.readDir.applySyncPromise(void 0, [pathStr]);
@@ -6354,26 +6367,29 @@ var bridge = (() => {
         if (errMsg.includes("entry not found") || errMsg.includes("not found")) {
           throw createFsError(
             "ENOENT",
-            `ENOENT: no such file or directory, scandir '${pathStr}'`,
+            `ENOENT: no such file or directory, scandir '${rawPath}'`,
             "scandir",
-            pathStr
+            rawPath
           );
         }
         throw err;
       }
       const entries = JSON.parse(entriesJson);
       if (options?.withFileTypes) {
-        return entries.map((e) => new Dirent(e.name, e.isDirectory, pathStr));
+        return entries.map((e) => new Dirent(e.name, e.isDirectory, rawPath));
       }
       return entries.map((e) => e.name);
     },
     mkdirSync(path, options) {
+      const rawPath = toPathString(path);
+      const pathStr = normalizePathForDirectory(rawPath);
       const recursive = typeof options === "object" ? options?.recursive ?? false : false;
-      _fs.mkdir.applySync(void 0, [toPathString(path), recursive]);
-      return recursive ? toPathString(path) : void 0;
+      _fs.mkdir.applySync(void 0, [pathStr, recursive]);
+      return recursive ? rawPath : void 0;
     },
     rmdirSync(path, _options) {
-      _fs.rmdir.applySyncPromise(void 0, [toPathString(path)]);
+      const pathStr = normalizePathForDirectory(toPathString(path));
+      _fs.rmdir.applySyncPromise(void 0, [pathStr]);
     },
     rmSync(path, options) {
       const pathStr = toPathString(path);
@@ -6407,11 +6423,12 @@ var bridge = (() => {
       }
     },
     existsSync(path) {
-      const pathStr = toPathString(path);
+      const pathStr = normalizePathForDirectory(toPathString(path));
       return _fs.exists.applySyncPromise(void 0, [pathStr]);
     },
     statSync(path, _options) {
-      const pathStr = toPathString(path);
+      const rawPath = toPathString(path);
+      const pathStr = normalizePathForDirectory(rawPath);
       let statJson;
       try {
         statJson = _fs.stat.applySyncPromise(void 0, [pathStr]);
@@ -6420,9 +6437,9 @@ var bridge = (() => {
         if (errMsg.includes("entry not found") || errMsg.includes("not found") || errMsg.includes("ENOENT") || errMsg.includes("no such file or directory")) {
           throw createFsError(
             "ENOENT",
-            `ENOENT: no such file or directory, stat '${pathStr}'`,
+            `ENOENT: no such file or directory, stat '${rawPath}'`,
             "stat",
-            pathStr
+            rawPath
           );
         }
         throw err;
@@ -6434,10 +6451,13 @@ var bridge = (() => {
       return fs.statSync(path);
     },
     unlinkSync(path) {
-      _fs.unlink.applySyncPromise(void 0, [toPathString(path)]);
+      const pathStr = normalizePathForDirectory(toPathString(path));
+      _fs.unlink.applySyncPromise(void 0, [pathStr]);
     },
     renameSync(oldPath, newPath) {
-      _fs.rename.applySyncPromise(void 0, [toPathString(oldPath), toPathString(newPath)]);
+      const oldPathStr = normalizePathForDirectory(toPathString(oldPath));
+      const newPathStr = normalizePathForDirectory(toPathString(newPath));
+      _fs.rename.applySyncPromise(void 0, [oldPathStr, newPathStr]);
     },
     copyFileSync(src, dest, _mode) {
       const content = fs.readFileSync(src);
@@ -6445,7 +6465,8 @@ var bridge = (() => {
     },
     // File descriptor methods
     openSync(path, flags, _mode) {
-      const pathStr = toPathString(path);
+      const rawPath = toPathString(path);
+      const pathStr = normalizePathForDirectory(rawPath);
       const numFlags = parseFlags(flags);
       const fd = nextFd++;
       const exists = fs.existsSync(path);
@@ -6454,9 +6475,9 @@ var bridge = (() => {
       } else if (!exists && !(numFlags & 64)) {
         throw createFsError(
           "ENOENT",
-          `ENOENT: no such file or directory, open '${pathStr}'`,
+          `ENOENT: no such file or directory, open '${rawPath}'`,
           "open",
-          pathStr
+          rawPath
         );
       }
       if (numFlags & 512 && exists) {
