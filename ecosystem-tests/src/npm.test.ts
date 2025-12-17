@@ -29,6 +29,14 @@ describe("NPM CLI Integration", () => {
 		const script = `
 (async function() {
   try {
+    // Set HOME to /data/root so npm writes to paths under /data
+    process.env.HOME = '/data/root';
+    // Configure npm paths to be under /data
+    process.env.npm_config_cache = '/data/root/.npm';
+    process.env.npm_config_userconfig = '/data/root/.npmrc';
+    // Disable npm's log file writing to avoid path errors
+    process.env.npm_config_logs_max = '0';
+
     // npm uses proc-log which emits 'output' events on process
     process.on('output', (type, ...args) => {
       if (type === 'standard') {
@@ -68,12 +76,14 @@ describe("NPM CLI Integration", () => {
 		// Create app directory structure
 		await vm.mkdir("/data/app");
 
-		// Create home directory for npm
-		await vm.mkdir("/data/app/.npm");
-		await vm.writeFile("/data/app/.npmrc", "");
+		// Create home directory for npm at /data/root (since HOME=/data/root)
+		await vm.mkdir("/data/root");
+		await vm.mkdir("/data/root/.npm");
+		await vm.mkdir("/data/root/.npm/_logs");
+		await vm.writeFile("/data/root/.npmrc", "");
 	}
 
-	describe.skip("Step 1: npm --version", () => {
+	describe("Step 1: npm --version", () => {
 		it(
 			"should run npm --version and return version string",
 			async () => {

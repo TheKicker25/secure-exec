@@ -88,9 +88,11 @@ export class VirtualMachine {
 		);
 
 		// Create NodeProcess with access to virtual filesystem
+		// Set homedir to /data/root so npm and other tools write to /data/*
 		this.nodeProcess = new NodeProcess({
 			memoryLimit: this.options.memoryLimit,
 			filesystem: this.vfs,
+			osConfig: { homedir: "/data/root" },
 		});
 
 		// Create WasixInstance sharing the same filesystem
