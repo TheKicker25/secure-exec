@@ -379,19 +379,21 @@ describe("VirtualFileSystem", () => {
 			expect(entries).toEqual([]);
 		});
 
-		it("should overwrite existing files", async () => {
+		it("should overwrite existing files with shorter content", async () => {
 			vm = new VirtualMachine({ loadNpm: false });
 			await vm.init();
 
 			const vfs = vm.createVirtualFileSystem();
 
-			vfs.writeFile("/overwrite.txt", "original");
-			expect(await vfs.readTextFile("/overwrite.txt")).toBe("original");
+			vfs.writeFile("/overwrite.txt", "original content here");
+			expect(await vfs.readTextFile("/overwrite.txt")).toBe(
+				"original content here",
+			);
 
-			// Note: wasmer Directory has a bug where shorter content doesn't truncate
-			// Use equal or longer content to work around this
-			vfs.writeFile("/overwrite.txt", "modified!");
-			expect(await vfs.readTextFile("/overwrite.txt")).toBe("modified!");
+			// This tests the truncation bug workaround in writeFile
+			// See: https://github.com/wasmerio/wasmer/issues/3326
+			vfs.writeFile("/overwrite.txt", "short");
+			expect(await vfs.readTextFile("/overwrite.txt")).toBe("short");
 		});
 
 		it("should handle mixed /data and direct path access to same file", async () => {

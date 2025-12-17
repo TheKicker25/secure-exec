@@ -161,6 +161,15 @@ export function createVirtualFileSystem(
 
 		writeFile: (path: string, content: string | Uint8Array): void => {
 			const normalizedPath = normalizePathForDirectory(path);
+			// HACK: Workaround for wasmer Directory truncation bug
+			// https://github.com/wasmerio/wasmer/issues/3326
+			// Directory.writeFile doesn't truncate existing files, so overwriting
+			// a file with shorter content leaves old bytes at the end.
+			// Delete first to ensure clean write. Fire-and-forget works because
+			// Directory operations are in-memory and complete synchronously.
+			directory.removeFile(normalizedPath).catch(() => {
+				// Ignore errors - file may not exist
+			});
 			directory.writeFile(normalizedPath, content);
 		},
 
