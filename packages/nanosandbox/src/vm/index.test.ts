@@ -371,7 +371,21 @@ describe("VirtualMachine", () => {
 			}
 		});
 
-		// Note: Running npm via node spawn doesn't work yet because npm uses
+		it("should have npm wrapper script at /data/bin/npm", async () => {
+			const vm = new VirtualMachine();
+			try {
+				await vm.init();
+
+				// Check that the wrapper exists
+				const result = await vm.spawn("cat", [`${DATA_MOUNT_PATH}/bin/npm`]);
+				expect(result.code).toBe(0);
+				expect(result.stdout).toContain("npm-cli.js");
+			} finally {
+				vm.dispose();
+			}
+		});
+
+		// Note: Running npm via the wrapper doesn't work yet because npm uses
 		// relative requires (../lib/cli.js) that depend on __dirname being set
 		// correctly, which the sandboxed-node fs bridge doesn't fully support.
 		// The npm files ARE accessible in the filesystem though.

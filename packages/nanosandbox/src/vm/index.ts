@@ -107,7 +107,24 @@ cache=/tmp/.npm
 		);
 
 		// npm is accessible at DATA_MOUNT_PATH + /opt/npm (e.g., /data/opt/npm)
-		// To run npm: node /data/opt/npm/lib/node_modules/npm/bin/npm-cli.js
+		// To run npm: node /opt/npm/bin/npm-cli.js (via spawn)
+		// Note: PATH lookup doesn't work for mounted directories in wasix,
+		// so npm must be invoked via explicit path or node spawn.
+
+		// Create simple wrapper scripts in /bin for convenience
+		this.bridge.mkdir("/bin");
+		this.bridge.writeFile(
+			"/bin/npm",
+			`#!/bin/bash
+node /opt/npm/bin/npm-cli.js "$@"
+`,
+		);
+		this.bridge.writeFile(
+			"/bin/npx",
+			`#!/bin/bash
+node /opt/npm/bin/npx-cli.js "$@"
+`,
+		);
 	}
 
 	/**

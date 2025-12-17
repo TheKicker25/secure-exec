@@ -10,10 +10,11 @@ The end result is a vaslty more efficient Linux sandbox with nearly identical pe
 
 ## Features
 
+- No microVMs, just V8 isolates & WASM
+- Runs anywhere Node.js can run
 - Available as a library or MCP server
-- No microVMs, just WASM & V8 isolates (both included in Node.js)
 - High-performance JS, no watered down JS runtime
-- Interactive terminal
+- Interactive terminal with TTY
 - Automatic fallback to microVMs without API changes (see Limitations below)
 
 ## Getting Started
