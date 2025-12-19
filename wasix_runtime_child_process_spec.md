@@ -38,8 +38,14 @@ Enable full `child_process` support in `sandboxed-node` by bridging through the 
                                  ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
 │ nanosandbox CommandExecutor implementation                              │
-│   Adds spawn request to HostExecContext for wasmer-js to handle         │
-│   OR spawns directly via Node.js child_process                          │
+│   Calls ctx.spawnChildStreaming() to route through wasmer-js            │
+└────────────────────────────────┬────────────────────────────────────────┘
+                                 │ ctx.spawnChildStreaming()
+                                 ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│ wasmer-js scheduler                                                     │
+│   Creates new WASIX process for the child command                       │
+│   Streams stdin/stdout between parent and child                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -48,14 +54,14 @@ Enable full `child_process` support in `sandboxed-node` by bridging through the 
 1. WASIX shell runs: `node -e "require('child_process').spawn('echo', ['hi'])"`
 2. WASIX calls `host_exec("node", ["-e", "..."])`
 3. wasmer-js scheduler invokes `hostExecHandler(ctx)`
-4. nanosandbox `hostExecHandler` creates `NodeProcess` with a `CommandExecutor`
+4. nanosandbox `hostExecHandler` creates `NodeProcess` with `CommandExecutor(ctx)`
 5. `NodeProcess.exec()` runs the code in isolated-vm
 6. User code calls `spawn('echo', ['hi'])`
 7. Bridge calls `_childProcessSpawnStart` Reference back to host
 8. Host's `CommandExecutor.spawn()` is invoked
-9. nanosandbox implementation either:
-   - Spawns via native Node.js `child_process` (simple case)
-   - OR adds to HostExecContext for nested WASIX spawn (sandboxed case)
+9. `CommandExecutor` calls `ctx.spawnChildStreaming('echo', ['hi'], ...)`
+10. wasmer-js scheduler creates new WASIX process for `echo`
+11. stdout/stderr stream back through the chain to user code
 
 ---
 
@@ -395,7 +401,7 @@ This reuses the existing host_exec infrastructure to spawn nested WASIX processe
 5. Test with mock CommandExecutor
 
 ### Phase 2: nanosandbox
-1. Create `createHostCommandExecutor()`
+1. Create `createCommandExecutor(ctx)`
 2. Pass CommandExecutor to NodeProcess in handleNodeCommand
 3. Integration tests
 
