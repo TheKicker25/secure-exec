@@ -13,6 +13,12 @@ export interface VirtualMachineOptions {
 	stdin?: string;
 }
 
+interface TerminalOptions {
+	term: string;
+	cols: number;
+	rows: number;
+}
+
 interface HostExecContext {
 	command: string;
 	args: string[];
@@ -26,6 +32,10 @@ interface HostExecContext {
 	onStderr?: (data: Uint8Array) => void;
 	// Stdin write callbacks - set by handler, called by scheduler
 	setStdinWriter?: (writer: (data: Uint8Array) => void, closer: () => void) => void;
+	// Kill/signal function callback - set by handler, called by scheduler
+	setKillFunction?: (killFn: (signal: number) => void) => void;
+	// Terminal options (if set, apply TERM/COLUMNS/LINES to env)
+	terminal?: TerminalOptions;
 }
 
 const DATA_MOUNT_PATH = "/data";
@@ -38,6 +48,17 @@ let wasmerRuntime: Runtime | null = null;
  * Executes the requested command and returns the exit code.
  * Streams stdout/stderr via the onStdout/onStderr callbacks.
  */
+// Signal number to name mapping for Node.js child.kill()
+const SIGNAL_NAMES: Record<number, string> = {
+	1: "SIGHUP",
+	2: "SIGINT",
+	3: "SIGQUIT",
+	9: "SIGKILL",
+	15: "SIGTERM",
+	18: "SIGCONT",
+	19: "SIGSTOP",
+};
+
 async function hostExecHandler(ctx: HostExecContext): Promise<number> {
 	console.error(`[host_exec] command=${ctx.command} args=${JSON.stringify(ctx.args)}`);
 
@@ -46,11 +67,27 @@ async function hostExecHandler(ctx: HostExecContext): Promise<number> {
 		// Parent env provides PATH and other system variables
 		const mergedEnv = { ...process.env, ...ctx.env };
 
+		// Apply terminal options if present
+		if (ctx.terminal) {
+			mergedEnv.TERM = ctx.terminal.term || "xterm-256color";
+			mergedEnv.COLUMNS = String(ctx.terminal.cols || 80);
+			mergedEnv.LINES = String(ctx.terminal.rows || 24);
+		}
+
 		const child = spawn(ctx.command, ctx.args, {
 			env: mergedEnv,
 			cwd: ctx.cwd !== "/" ? ctx.cwd : undefined,
 			stdio: ["pipe", "pipe", "pipe"],
 		});
+
+		// Register kill function if setKillFunction is available
+		if (ctx.setKillFunction) {
+			ctx.setKillFunction((signal: number) => {
+				const signalName = SIGNAL_NAMES[signal] || "SIGTERM";
+				console.error(`[host_exec] sending signal ${signalName} (${signal}) to process`);
+				child.kill(signalName);
+			});
+		}
 
 		// Register stdin writer if setStdinWriter is available
 		if (ctx.setStdinWriter && child.stdin) {
@@ -81,9 +118,17 @@ async function hostExecHandler(ctx: HostExecContext): Promise<number> {
 			}
 		});
 
-		child.on("close", (code) => {
-			console.error(`[host_exec] process exited with code: ${code}`);
-			resolve(code ?? 0);
+		child.on("close", (code, signal) => {
+			// If killed by signal, return 128 + signal number (Unix convention)
+			if (signal) {
+				const sigNum = Object.entries(SIGNAL_NAMES).find(([_, name]) => name === signal)?.[0];
+				const exitCode = sigNum ? 128 + parseInt(sigNum) : 128;
+				console.error(`[host_exec] process killed by signal ${signal}, exit code ${exitCode}`);
+				resolve(exitCode);
+			} else {
+				console.error(`[host_exec] process exited with code: ${code}`);
+				resolve(code ?? 0);
+			}
 		});
 
 		child.on("error", (err) => {
