@@ -302,3 +302,75 @@ The last test shows the spawn actually succeeds (exit code 0) but the result isn
 2. ✅ setTimeout bug is fixed
 3. 🔄 Need to debug why child spawn results aren't delivered to spawnSync
 4. Consider if the nanosandbox architecture needs redesign for subprocess support
+
+---
+
+## Definitive Test: Bash + Coreutils via Native Wasmer CLI
+
+Created a comprehensive test at `~/misc/wasmer-bash-test/` that runs the same tests as the wasmer-js tests, but using the native wasmer CLI.
+
+### Test Results: ALL PASS
+
+```
+=== Wasmer Bash + Coreutils Test ===
+
+--- Test 1: bash --version ---
+stdout: GNU bash, version dist.16(1) (wasm32-wasmer-wasi)
+exit code: Some(0)
+
+--- Test 2: bash -c 'echo hello' (builtin) ---
+stdout: hello from bash builtin
+exit code: Some(0)
+
+--- Test 3: bash -c 'echo $PATH' ---
+stdout: PATH=/bin:/usr/bin
+exit code: Some(0)
+
+--- Test 4: bash -c '/bin/echo hello' (absolute path) ---
+stdout: hello from external echo
+exit code: Some(0)
+
+--- Test 5: bash -c 'command echo hello' (via PATH) ---
+stdout: echo
+hello via PATH
+exit code: Some(0)
+
+--- Test 6: bash -c 'ls /' (via PATH) ---
+stdout: bin dev etc tmp usr
+exit code: Some(0)
+
+--- Test 7: bash -c 'ls /bin' ---
+stdout: arch base32 base64 ... (20+ commands)
+exit code: Some(0)
+
+--- Test 8: Run subprocess with output capture ---
+stdout: captured: captured
+exit code: Some(0)
+```
+
+### Key Findings
+
+| Test | Wasmer-JS | Native Wasmer | Notes |
+|------|-----------|---------------|-------|
+| bash --version | ✅ | ✅ | No subprocess |
+| echo (builtin) | ✅ | ✅ | No subprocess |
+| /bin/echo (absolute) | ❌ Timeout | ✅ | Subprocess fails in JS |
+| command echo (PATH) | ❌ Timeout | ✅ | PATH resolution works natively |
+| ls / | ❌ Timeout | ✅ | Subprocess works natively |
+| $() capture | N/A | ✅ | Subprocess capture works |
+
+### Conclusion
+
+**The PATH resolution and subprocess spawning bugs are 100% wasmer-js specific.**
+
+The native wasmer runtime (Rust) correctly:
+1. Resolves commands via PATH using `find_executable_in_path`
+2. Spawns subprocesses via `posix_spawnp` / `proc_spawn2`
+3. Captures subprocess output via `$()` substitution
+
+The wasmer-js integration has issues with:
+1. ~~setTimeout incompatibility with Node.js~~ (fixed)
+2. Child process result delivery to waiting spawnSync
+3. Possibly the scheduler/threading model in WASM environment
+
+The `which` hack workaround in nanosandbox is the correct approach until wasmer-js is fixed.
