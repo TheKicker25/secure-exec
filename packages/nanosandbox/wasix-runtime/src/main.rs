@@ -511,6 +511,10 @@ fn handle_spawn_request(
 
     // Spawn the command - WASIX provides commands from dependencies (coreutils, bash)
     // as WASM modules that can be executed via Command::new with absolute paths
+    //
+    // Note: Command::envs() doesn't work in WASIX - environment variables aren't
+    // passed to child processes. This is a WASIX limitation (proc_spawn doesn't
+    // forward env). Workaround: export vars in shell script instead of using env option.
     let result = Command::new(&command_path)
         .args(&spawn_req.args)
         .envs(&spawn_req.env)
