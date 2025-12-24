@@ -214,10 +214,10 @@ fn run_event_loop(session: u64) {
     let mut children: HashMap<u64, ChildProcess> = HashMap::new();
     let mut child_output_buf = vec![0u8; 8192]; // Buffer for reading child output
 
-    // In host_exec mode, stdin is not used - the IPC channel is separate.
-    // Skip the stdin availability check which can hang due to poll_oneoff issues
-    // with timeout=0 in the JS environment.
-    #[allow(unused_mut)]
+    // In host_exec mode, stdin forwarding is not supported due to poll_oneoff
+    // issues in wasmer-js. When stdin is in the subscription list, poll_oneoff
+    // blocks indefinitely even with a timeout. Skip stdin handling entirely.
+    // TODO: Fix this when wasmer-js poll_oneoff is fixed.
     let mut stdin_closed = true;
 
     // Subscriptions for poll_oneoff:
