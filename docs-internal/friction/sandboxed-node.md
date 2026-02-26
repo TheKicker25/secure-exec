@@ -22,6 +22,11 @@
    - Symptom: using `entryModule.namespace.copy()` for `run()` exports failed with `[object Module] could not be cloned`.
    - Fix: after ESM evaluation, bind the namespace in isolate scope and copy `Object.fromEntries(Object.entries(namespace))` to the host.
 
+6. TODO: follow up on lazy dynamic-import edge cases in ESM execution.
+   - Symptom: `filePath: "/entry.mjs"` with top-level `await import("./mod.mjs")` can log pre-import output and imported-module side effects but miss post-await statements.
+   - Symptom: precompile can swallow compile failures and fall back to `require()` where ESM compile/evaluate errors should surface directly.
+   - Next step: tighten precompile error handling and add a dedicated ESM top-level-await + dynamic-import regression test.
+
 ## 2026-02-25
 
 1. **[resolved]** Package resolution for `node_modules` was too limited.
