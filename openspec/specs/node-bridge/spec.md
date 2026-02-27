@@ -3,7 +3,7 @@
 ## Purpose
 Define bridge boundary policy, third-party module boundaries, and capability expansion controls.
 
-## ADDED Requirements
+## Requirements
 
 ### Requirement: Bridge Scope Is Node Built-ins Only
 Bridge implementations injected into isolated-vm MUST be limited to Node.js built-in modules and types compatible with `@types/node`.
