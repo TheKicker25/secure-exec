@@ -22,6 +22,14 @@ Status of each Node.js core module in sandboxed-node.
 
 Deterministic unsupported API format: `"<module>.<api> is not supported in sandbox"`.
 
+## Compatibility Matrix Runtime Policy
+
+- Compatibility fixtures run as black-box Node projects from `packages/sandboxed-node/tests/projects/`.
+- Fixture metadata only supports `pass` and `fail` expectations; no known-mismatch bypass state is allowed.
+- `pass` fixtures require host Node and sandboxed-node parity on normalized `code`, `stdout`, and `stderr`.
+- `fail` fixtures must assert deterministic unsupported-behavior contracts in sandboxed-node.
+- Any parity mismatch remains a failing test until runtime behavior is fixed.
+
 ## fs (Tier 1: Bridge)
 
 - Bridge implementation (`src/bridge/fs.ts`)

@@ -25,6 +25,7 @@
     "build:polyfills": "node scripts/build-polyfills.mjs",
     "build": "pnpm run build:bridge && pnpm run build:polyfills && tsc",
     "check-types:test": "vitest --typecheck --run tests/types/",
+    "test:project-matrix": "vitest run tests/project-matrix.test.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },

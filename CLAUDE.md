@@ -13,6 +13,14 @@
 - use `openspec/specs/README.md` for how to reference baseline capabilities in new change proposals
 - track development friction in `docs-internal/friction/sandboxed-node.md` (mark resolved items with fix notes)
 
+## Compatibility Project-Matrix Policy
+
+- compatibility fixtures live under `packages/sandboxed-node/tests/projects/` and MUST be black-box Node projects (`package.json` + source entrypoint)
+- fixtures MUST stay sandbox-blind: no sandbox-only branches, no sandbox-specific entrypoints, and no runtime tailoring in fixture code
+- sandboxed-node runtime MUST stay fixture-opaque: no behavior branches by fixture name/path/test marker
+- the matrix runs each fixture in host Node and sandboxed-node and compares normalized `code`, `stdout`, and `stderr`
+- no known-mismatch classification is allowed; parity mismatches stay failing until runtime/bridge behavior is fixed
+
 ## Comment Pattern
 
 Follow the style in `packages/sandboxed-node/src/index.ts`.

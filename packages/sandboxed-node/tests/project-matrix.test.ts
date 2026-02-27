@@ -1,0 +1,518 @@
+import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
+import { access, cp, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
+import { describe, expect, it } from "vitest";
+import {
+	allowAllEnv,
+	allowAllFs,
+	NodeFileSystem,
+	NodeProcess,
+} from "../src/index.js";
+
+const execFileAsync = promisify(execFile);
+const TEST_TIMEOUT_MS = 55_000;
+const COMMAND_TIMEOUT_MS = 45_000;
+const CACHE_READY_MARKER = ".ready";
+
+const TESTS_ROOT = path.dirname(fileURLToPath(import.meta.url));
+const PACKAGE_ROOT = path.resolve(TESTS_ROOT, "..");
+const WORKSPACE_ROOT = path.resolve(PACKAGE_ROOT, "..", "..");
+const FIXTURES_ROOT = path.join(TESTS_ROOT, "projects");
+const CACHE_ROOT = path.join(PACKAGE_ROOT, ".cache", "project-matrix");
+
+const fixturePermissions = {
+	...allowAllFs,
+	...allowAllEnv,
+};
+
+type PassFixtureMetadata = {
+	entry: string;
+	expectation: "pass";
+};
+
+type FailFixtureMetadata = {
+	entry: string;
+	expectation: "fail";
+	fail: {
+		code: number;
+		stderrIncludes: string;
+	};
+};
+
+type FixtureMetadata = PassFixtureMetadata | FailFixtureMetadata;
+
+type FixtureProject = {
+	name: string;
+	sourceDir: string;
+	metadata: FixtureMetadata;
+};
+
+type PreparedFixture = {
+	cacheHit: boolean;
+	cacheKey: string;
+	projectDir: string;
+};
+
+type ResultEnvelope = {
+	code: number;
+	stdout: string;
+	stderr: string;
+};
+
+const discoveredFixtures = await discoverFixtures();
+
+describe("compatibility project matrix", () => {
+	it("discovers at least one fixture project", () => {
+		expect(discoveredFixtures.length).toBeGreaterThan(0);
+	});
+
+	for (const fixture of discoveredFixtures) {
+		it(
+			`runs fixture ${fixture.name} in host node and sandboxed-node`,
+			async () => {
+				const firstPrepare = await prepareFixtureProject(fixture);
+				const secondPrepare = await prepareFixtureProject(fixture);
+
+				expect(secondPrepare.cacheKey).toBe(firstPrepare.cacheKey);
+				expect(secondPrepare.cacheHit).toBe(true);
+
+				const host = await runHostExecution(
+					secondPrepare.projectDir,
+					fixture.metadata.entry,
+				);
+				const sandbox = await runSandboxExecution(
+					secondPrepare.projectDir,
+					fixture.metadata.entry,
+				);
+
+				if (fixture.metadata.expectation === "pass") {
+					expect(sandbox.code).toBe(host.code);
+					expect(sandbox.stdout).toBe(host.stdout);
+					expect(sandbox.stderr).toBe(host.stderr);
+					return;
+				}
+
+				expect(host.code).toBe(0);
+				expect(sandbox.code).toBe(fixture.metadata.fail.code);
+				expect(sandbox.stderr).toContain(fixture.metadata.fail.stderrIncludes);
+			},
+			TEST_TIMEOUT_MS,
+		);
+	}
+});
+
+async function discoverFixtures(): Promise<FixtureProject[]> {
+	// Get project directories and validate metadata before running tests.
+	const entries = await readdir(FIXTURES_ROOT, { withFileTypes: true });
+	const fixtureDirs = entries
+		.filter((entry) => entry.isDirectory())
+		.map((entry) => entry.name)
+		.sort((left, right) => left.localeCompare(right));
+
+	const fixtures: FixtureProject[] = [];
+	for (const fixtureName of fixtureDirs) {
+		const sourceDir = path.join(FIXTURES_ROOT, fixtureName);
+		const metadataPath = path.join(sourceDir, "fixture.json");
+		const metadataText = await readFile(metadataPath, "utf8");
+		const parsed = JSON.parse(metadataText) as unknown;
+		const metadata = parseFixtureMetadata(parsed, fixtureName);
+		const entryPath = path.join(sourceDir, metadata.entry);
+		await assertPathExists(
+			entryPath,
+			`Fixture "${fixtureName}" entry file not found: ${metadata.entry}`,
+		);
+		await assertPathExists(
+			path.join(sourceDir, "package.json"),
+			`Fixture "${fixtureName}" requires package.json`,
+		);
+		fixtures.push({
+			name: fixtureName,
+			sourceDir,
+			metadata,
+		});
+	}
+
+	return fixtures;
+}
+
+function parseFixtureMetadata(raw: unknown, fixtureName: string): FixtureMetadata {
+	// Enforce a strict metadata schema with only pass/fail expectations.
+	if (!isRecord(raw)) {
+		throw new Error(`Fixture "${fixtureName}" metadata must be an object`);
+	}
+	if ("knownMismatch" in raw) {
+		throw new Error(
+			`Fixture "${fixtureName}" uses unsupported knownMismatch classification`,
+		);
+	}
+	if ("sandboxEntry" in raw || "nodeEntry" in raw) {
+		throw new Error(
+			`Fixture "${fixtureName}" must use a single shared entry for both runtimes`,
+		);
+	}
+
+	const allowedTopLevelKeys = new Set(["entry", "expectation", "fail"]);
+	for (const key of Object.keys(raw)) {
+		if (!allowedTopLevelKeys.has(key)) {
+			throw new Error(
+				`Fixture "${fixtureName}" has unsupported metadata key "${key}"`,
+			);
+		}
+	}
+
+	if (typeof raw.entry !== "string" || raw.entry.length === 0) {
+		throw new Error(`Fixture "${fixtureName}" requires a non-empty entry`);
+	}
+	if (raw.expectation !== "pass" && raw.expectation !== "fail") {
+		throw new Error(
+			`Fixture "${fixtureName}" expectation must be "pass" or "fail"`,
+		);
+	}
+
+	if (raw.expectation === "pass") {
+		return {
+			entry: raw.entry,
+			expectation: "pass",
+		};
+	}
+
+	if (!isRecord(raw.fail)) {
+		throw new Error(
+			`Fixture "${fixtureName}" with expectation "fail" requires a fail contract`,
+		);
+	}
+	const failKeys = new Set(["code", "stderrIncludes"]);
+	for (const key of Object.keys(raw.fail)) {
+		if (!failKeys.has(key)) {
+			throw new Error(
+				`Fixture "${fixtureName}" fail contract has unsupported key "${key}"`,
+			);
+		}
+	}
+
+	if (typeof raw.fail.code !== "number") {
+		throw new Error(
+			`Fixture "${fixtureName}" fail contract requires numeric code`,
+		);
+	}
+	if (
+		typeof raw.fail.stderrIncludes !== "string" ||
+		raw.fail.stderrIncludes.length === 0
+	) {
+		throw new Error(
+			`Fixture "${fixtureName}" fail contract requires stderrIncludes`,
+		);
+	}
+
+	return {
+		entry: raw.entry,
+		expectation: "fail",
+		fail: {
+			code: raw.fail.code,
+			stderrIncludes: raw.fail.stderrIncludes,
+		},
+	};
+}
+
+async function prepareFixtureProject(fixture: FixtureProject): Promise<PreparedFixture> {
+	// Set up cache roots and return ready entries immediately.
+	await mkdir(CACHE_ROOT, { recursive: true });
+	const cacheKey = await createFixtureCacheKey(fixture);
+	const cacheDir = path.join(CACHE_ROOT, `${fixture.name}-${cacheKey}`);
+	const readyMarkerPath = path.join(cacheDir, CACHE_READY_MARKER);
+	if (await pathExists(readyMarkerPath)) {
+		return {
+			cacheHit: true,
+			cacheKey,
+			projectDir: cacheDir,
+		};
+	}
+
+	// Reset stale cache entries that do not have a ready marker.
+	if (await pathExists(cacheDir)) {
+		await rm(cacheDir, { recursive: true, force: true });
+	}
+
+	// Prepare and install dependencies in a staging directory.
+	const stagingDir = `${cacheDir}.tmp-${process.pid}-${Date.now()}`;
+	await rm(stagingDir, { recursive: true, force: true });
+	await cp(fixture.sourceDir, stagingDir, {
+		recursive: true,
+		filter: (source) => !isNodeModulesPath(source),
+	});
+	await execFileAsync(
+		"pnpm",
+		["install", "--ignore-workspace", "--prefer-offline"],
+		{
+			cwd: stagingDir,
+			timeout: COMMAND_TIMEOUT_MS,
+			maxBuffer: 10 * 1024 * 1024,
+		},
+	);
+	await writeFile(
+		path.join(stagingDir, CACHE_READY_MARKER),
+		`${new Date().toISOString()}\n`,
+	);
+
+	// Promote the staging directory after install is complete.
+	try {
+		await rename(stagingDir, cacheDir);
+	} catch (error) {
+		const code =
+			error && typeof error === "object" && "code" in error
+				? String(error.code)
+				: "";
+		if (code !== "EEXIST") {
+			throw error;
+		}
+		await rm(stagingDir, { recursive: true, force: true });
+		if (!(await pathExists(readyMarkerPath))) {
+			throw new Error(`Cache entry race produced missing ready marker: ${cacheDir}`);
+		}
+	}
+
+	return {
+		cacheHit: false,
+		cacheKey,
+		projectDir: cacheDir,
+	};
+}
+
+async function createFixtureCacheKey(fixture: FixtureProject): Promise<string> {
+	// Hash fixture files and install-affecting runtime/tool factors.
+	const hash = createHash("sha256");
+	const nodeMajor = process.versions.node.split(".")[0] ?? "0";
+	const pnpmVersion = await getPnpmVersion();
+	hash.update(`node-major:${nodeMajor}\n`);
+	hash.update(`pnpm:${pnpmVersion}\n`);
+	hash.update(`platform:${process.platform}\n`);
+	hash.update(`arch:${process.arch}\n`);
+
+	await hashOptionalFile(
+		hash,
+		"workspace-lock",
+		path.join(WORKSPACE_ROOT, "pnpm-lock.yaml"),
+	);
+	await hashOptionalFile(
+		hash,
+		"workspace-package",
+		path.join(WORKSPACE_ROOT, "package.json"),
+	);
+	await hashOptionalFile(
+		hash,
+		"fixture-package",
+		path.join(fixture.sourceDir, "package.json"),
+	);
+	await hashOptionalFile(
+		hash,
+		"fixture-lock",
+		path.join(fixture.sourceDir, "pnpm-lock.yaml"),
+	);
+
+	const files = await listFixtureFiles(fixture.sourceDir);
+	for (const relativePath of files) {
+		const absolutePath = path.join(fixture.sourceDir, relativePath);
+		const content = await readFile(absolutePath);
+		hash.update(`fixture-file:${toPosixPath(relativePath)}\n`);
+		hash.update(content);
+		hash.update("\n");
+	}
+
+	return hash.digest("hex").slice(0, 16);
+}
+
+let pnpmVersionPromise: Promise<string> | undefined;
+
+function getPnpmVersion(): Promise<string> {
+	// Get pnpm version once so cache-key calculation stays stable.
+	if (!pnpmVersionPromise) {
+		pnpmVersionPromise = execFileAsync("pnpm", ["--version"], {
+			cwd: WORKSPACE_ROOT,
+			timeout: COMMAND_TIMEOUT_MS,
+			maxBuffer: 1024 * 1024,
+		}).then((result) => result.stdout.trim());
+	}
+
+	return pnpmVersionPromise;
+}
+
+async function runHostExecution(
+	projectDir: string,
+	entryRelativePath: string,
+): Promise<ResultEnvelope> {
+	const entryPath = path.join(projectDir, entryRelativePath);
+	const result = await runCommand(process.execPath, [entryPath], projectDir);
+	return normalizeEnvelope(result, projectDir);
+}
+
+async function runSandboxExecution(
+	projectDir: string,
+	entryRelativePath: string,
+): Promise<ResultEnvelope> {
+	// Execute the same entrypoint code against sandboxed-node.
+	const entryPath = path.join(projectDir, entryRelativePath);
+	const entryCode = await readFile(entryPath, "utf8");
+	const proc = new NodeProcess({
+		filesystem: new NodeFileSystem(),
+		permissions: fixturePermissions,
+		processConfig: {
+			cwd: projectDir,
+			env: {},
+		},
+	});
+
+	try {
+		const result = await proc.exec(entryCode, {
+			filePath: entryPath,
+			cwd: projectDir,
+			env: {},
+		});
+		return normalizeEnvelope(result, projectDir);
+	} finally {
+		proc.dispose();
+	}
+}
+
+async function runCommand(
+	command: string,
+	args: string[],
+	cwd: string,
+): Promise<ResultEnvelope> {
+	try {
+		const result = await execFileAsync(command, args, {
+			cwd,
+			timeout: COMMAND_TIMEOUT_MS,
+			maxBuffer: 10 * 1024 * 1024,
+		});
+		return {
+			code: 0,
+			stdout: result.stdout,
+			stderr: result.stderr,
+		};
+	} catch (error: unknown) {
+		if (!isExecError(error)) {
+			throw error;
+		}
+		return {
+			code: typeof error.code === "number" ? error.code : 1,
+			stdout: typeof error.stdout === "string" ? error.stdout : "",
+			stderr: typeof error.stderr === "string" ? error.stderr : "",
+		};
+	}
+}
+
+function normalizeEnvelope(
+	envelope: ResultEnvelope,
+	projectDir: string,
+): ResultEnvelope {
+	return {
+		code: envelope.code,
+		stdout: normalizeText(envelope.stdout, projectDir),
+		stderr: normalizeText(envelope.stderr, projectDir),
+	};
+}
+
+function normalizeText(value: string, projectDir: string): string {
+	const normalized = value.replace(/\r\n/g, "\n");
+	const projectDirPosix = toPosixPath(projectDir);
+	return normalized
+		.split(projectDir)
+		.join("<project>")
+		.split(projectDirPosix)
+		.join("<project>");
+}
+
+async function hashOptionalFile(
+	hash: ReturnType<typeof createHash>,
+	label: string,
+	filePath: string,
+): Promise<void> {
+	hash.update(`${label}:`);
+	try {
+		const content = await readFile(filePath);
+		hash.update(content);
+	} catch (error) {
+		if (!isNotFoundError(error)) {
+			throw error;
+		}
+		hash.update("<missing>");
+	}
+	hash.update("\n");
+}
+
+async function listFixtureFiles(rootDir: string): Promise<string[]> {
+	const files: string[] = [];
+
+	async function walk(relativeDir: string): Promise<void> {
+		const directory = path.join(rootDir, relativeDir);
+		const entries = await readdir(directory, { withFileTypes: true });
+		const sortedEntries = entries
+			.filter((entry) => !isNodeModulesPath(entry.name))
+			.sort((left, right) => left.name.localeCompare(right.name));
+
+		for (const entry of sortedEntries) {
+			const relativePath = relativeDir
+				? path.join(relativeDir, entry.name)
+				: entry.name;
+			if (entry.isDirectory()) {
+				await walk(relativePath);
+				continue;
+			}
+			if (entry.isFile()) {
+				files.push(relativePath);
+			}
+		}
+	}
+
+	await walk("");
+	return files.sort((left, right) => left.localeCompare(right));
+}
+
+async function assertPathExists(pathname: string, message: string): Promise<void> {
+	try {
+		await access(pathname);
+	} catch {
+		throw new Error(message);
+	}
+}
+
+async function pathExists(pathname: string): Promise<boolean> {
+	try {
+		await access(pathname);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+function isNodeModulesPath(value: string): boolean {
+	return value.split(path.sep).includes("node_modules");
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function isNotFoundError(value: unknown): boolean {
+	return (
+		Boolean(value) &&
+		typeof value === "object" &&
+		"code" in value &&
+		String(value.code) === "ENOENT"
+	);
+}
+
+function isExecError(value: unknown): value is {
+	code?: number;
+	stdout?: string;
+	stderr?: string;
+} {
+	return Boolean(value) && typeof value === "object" && "stdout" in value;
+}
+
+function toPosixPath(value: string): string {
+	return value.split(path.sep).join(path.posix.sep);
+}

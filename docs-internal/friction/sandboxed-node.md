@@ -22,7 +22,11 @@
    - Symptom: using `entryModule.namespace.copy()` for `run()` exports failed with `[object Module] could not be cloned`.
    - Fix: after ESM evaluation, bind the namespace in isolate scope and copy `Object.fromEntries(Object.entries(namespace))` to the host.
 
-6. TODO: follow up on lazy dynamic-import edge cases in ESM execution.
+6. **[resolved]** Project-matrix fixture installs were repeated on every run.
+   - Symptom: compatibility fixtures paid repeated `copy + pnpm install` cost even when fixture inputs were unchanged.
+   - Fix: added persistent fixture install cache under `packages/sandboxed-node/.cache/project-matrix/` keyed by fixture/toolchain/runtime factors with `.ready` marker semantics. Repeated `test:project-matrix` runs now reuse prepared installs.
+
+7. TODO: follow up on lazy dynamic-import edge cases in ESM execution.
    - Symptom: `filePath: "/entry.mjs"` with top-level `await import("./mod.mjs")` can log pre-import output and imported-module side effects but miss post-await statements.
    - Next step: add a dedicated ESM top-level-await + dynamic-import regression test.
 
