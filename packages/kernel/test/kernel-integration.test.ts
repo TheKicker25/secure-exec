@@ -251,6 +251,46 @@ describe("kernel + MockRuntimeDriver integration", () => {
 
 			await proc.wait();
 		});
+
+		it("echoStdin: writeStdin + closeStdin → stdout contains written data", async () => {
+			const stdoutChunks: Uint8Array[] = [];
+			const driver = new MockRuntimeDriver(["echo-cmd"], {
+				"echo-cmd": { echoStdin: true },
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const proc = kernel.spawn("echo-cmd", [], {
+				onStdout: (data) => stdoutChunks.push(data),
+			});
+			proc.writeStdin("hello world");
+			proc.closeStdin();
+
+			await proc.wait();
+
+			const output = stdoutChunks.map((c) => new TextDecoder().decode(c)).join("");
+			expect(output).toBe("hello world");
+		});
+
+		it("echoStdin: multiple writeStdin calls → stdout contains all chunks concatenated", async () => {
+			const stdoutChunks: Uint8Array[] = [];
+			const driver = new MockRuntimeDriver(["echo-cmd"], {
+				"echo-cmd": { echoStdin: true },
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const proc = kernel.spawn("echo-cmd", [], {
+				onStdout: (data) => stdoutChunks.push(data),
+			});
+			proc.writeStdin("chunk1");
+			proc.writeStdin("chunk2");
+			proc.writeStdin("chunk3");
+			proc.closeStdin();
+
+			await proc.wait();
+
+			const output = stdoutChunks.map((c) => new TextDecoder().decode(c)).join("");
+			expect(output).toBe("chunk1chunk2chunk3");
+		});
 	});
 
 	// -----------------------------------------------------------------------

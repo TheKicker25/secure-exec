@@ -217,6 +217,8 @@ export interface MockCommandConfig {
 	stdinCapture?: Uint8Array[];
 	/** If provided, called on closeStdin */
 	onCloseStdin?: () => void;
+	/** If true, writeStdin data is immediately emitted as stdout via DriverProcess.onStdout */
+	echoStdin?: boolean;
 	/** If true, process never exits on its own — only exits when kill() is called */
 	neverExit?: boolean;
 	/** If provided, kill signal numbers are pushed here when kill() is called */
@@ -261,9 +263,14 @@ export class MockRuntimeDriver implements RuntimeDriver {
 		const proc: DriverProcess = {
 			writeStdin(data) {
 				if (config.stdinCapture) config.stdinCapture.push(data);
+				if (config.echoStdin) proc.onStdout?.(data);
 			},
 			closeStdin() {
 				config.onCloseStdin?.();
+				if (config.echoStdin) {
+					exitResolve!(exitCode);
+					proc.onExit?.(exitCode);
+				}
 			},
 			kill(_signal) {
 				config.killSignals?.push(_signal);
@@ -277,8 +284,8 @@ export class MockRuntimeDriver implements RuntimeDriver {
 			onExit: null,
 		};
 
-		if (config.neverExit) {
-			// Process hangs forever — only exits when kill() is called
+		if (config.neverExit || config.echoStdin) {
+			// Process hangs until kill() or closeStdin() (echoStdin)
 		} else if (config.emitDuringSpawn) {
 			// Emit synchronously during spawn via ctx callbacks
 			if (stdoutData) ctx.onStdout?.(stdoutData);
