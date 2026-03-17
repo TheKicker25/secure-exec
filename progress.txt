@@ -3,6 +3,8 @@ Started: 2026-03-17
 PRD: ralph/kernel-hardening (46 stories)
 
 ## Codebase Patterns
+- Kernel errors use `KernelError(code, message)` from types.ts — always use structured codes, not plain Error with embedded code in message
+- ERRNO_MAP in wasmvm/src/wasi-constants.ts is the single source of truth for POSIX→WASI errno mapping
 - Use `pnpm run check-types` (turbo) for typecheck, not bare `tsc`
 - Bridge readFileSync error.code is lost crossing isolate boundary — bridge must detect error patterns in message and re-create proper Node.js errors
 - Node driver creates system driver with `permissions: { ...allowAllChildProcess }` only — no fs permissions → deny-by-default → EACCES for all fs reads
@@ -228,4 +230,26 @@ PRD: ralph/kernel-hardening (46 stories)
   - Cache key should include Cargo.lock and rust-toolchain.toml to invalidate on dependency or toolchain changes
   - Guard test uses `if (process.env.CI)` to only run in CI — locally, WASM-gated tests continue to skip gracefully
   - The guard test validates the build step worked; the skipIf tests remain unchanged so local dev without WASM still works
+---
+
+## 2026-03-17 - US-015
+- What was implemented: Replaced WasmVM error string matching with structured error codes
+- Files changed:
+  - packages/kernel/src/types.ts — added KernelError class with typed `.code: KernelErrorCode` field and KernelErrorCode union type (15 POSIX codes)
+  - packages/kernel/src/kernel.ts — all `throw new Error("ECODE: ...")` replaced with `throw new KernelError("ECODE", "...")`
+  - packages/kernel/src/fd-table.ts — same KernelError migration for EBADF throws
+  - packages/kernel/src/pipe-manager.ts — same KernelError migration for EBADF/EPIPE throws
+  - packages/kernel/src/process-table.ts — same KernelError migration for ESRCH throws
+  - packages/kernel/src/device-layer.ts — same KernelError migration for EPERM throws
+  - packages/kernel/src/permissions.ts — replaced manual `err.code = "EACCES"` with KernelError
+  - packages/kernel/src/index.ts — exported KernelError and KernelErrorCode
+  - packages/runtime/wasmvm/src/wasi-constants.ts — added complete WASI errno table (15 codes) and ERRNO_MAP lookup object
+  - packages/runtime/wasmvm/src/driver.ts — rewrote mapErrorToErrno() to check `.code` first, fallback to ERRNO_MAP string matching; exported for testing
+  - packages/runtime/wasmvm/test/driver.test.ts — added 13 tests covering structured code mapping, fallback string matching, non-Error values, and exhaustive KernelErrorCode coverage
+- **Learnings for future iterations:**
+  - KernelError extends Error with `.code` field — same pattern as VfsError in wasi-types.ts but for kernel-level errors
+  - mapErrorToErrno now checks `(err as { code?: string }).code` first — works for KernelError, VfsError, and NodeJS.ErrnoException alike
+  - ERRNO_MAP in wasi-constants.ts is the single source of truth for POSIX→WASI errno mapping; eliminates magic numbers
+  - The message format `"CODE: description"` is preserved for backward compatibility with bridge string matching
+  - permissions.ts previously set `.code` manually via cast — KernelError makes this cleaner with typed constructor
 ---
