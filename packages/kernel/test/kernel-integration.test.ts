@@ -313,6 +313,116 @@ describe("kernel + MockRuntimeDriver integration", () => {
 	});
 
 	// -----------------------------------------------------------------------
+	// FD inheritance
+	// -----------------------------------------------------------------------
+
+	describe("FD inheritance", () => {
+		it("child inherits parent FD table via fork", async () => {
+			const driver = new MockRuntimeDriver(["parent-cmd", "child-cmd"]);
+			const { kernel: k, vfs } = await createTestKernel({ drivers: [driver] });
+			kernel = k;
+			const ki = driver.kernelInterface!;
+
+			await vfs.writeFile("/tmp/data.txt", "inherited content");
+
+			// Spawn parent and open a file in its FD table
+			const parent = kernel.spawn("parent-cmd", []);
+			const fd = ki.fdOpen(parent.pid, "/tmp/data.txt", 0);
+			expect(fd).toBeGreaterThanOrEqual(3);
+
+			// Spawn child via kernel interface (callerPid = parent.pid)
+			const child = ki.spawn("child-cmd", [], { ppid: parent.pid });
+
+			// Child should have the inherited FD and can read from it
+			const data = await ki.fdRead(child.pid, fd, 100);
+			expect(new TextDecoder().decode(data)).toBe("inherited content");
+
+			await parent.wait();
+			await child.wait();
+		});
+
+		it("inherited FDs share cursor position with parent", async () => {
+			const driver = new MockRuntimeDriver(["parent-cmd", "child-cmd"]);
+			const { kernel: k, vfs } = await createTestKernel({ drivers: [driver] });
+			kernel = k;
+			const ki = driver.kernelInterface!;
+
+			await vfs.writeFile("/tmp/shared.txt", "hello world");
+
+			const parent = kernel.spawn("parent-cmd", []);
+			const fd = ki.fdOpen(parent.pid, "/tmp/shared.txt", 0);
+
+			// Parent reads 5 bytes — cursor advances to 5
+			const data1 = await ki.fdRead(parent.pid, fd, 5);
+			expect(new TextDecoder().decode(data1)).toBe("hello");
+
+			// Spawn child — inherits FD with shared cursor at position 5
+			const child = ki.spawn("child-cmd", [], { ppid: parent.pid });
+
+			// Child reads from inherited FD — starts at cursor position 5
+			const data2 = await ki.fdRead(child.pid, fd, 100);
+			expect(new TextDecoder().decode(data2)).toBe(" world");
+
+			await parent.wait();
+			await child.wait();
+		});
+
+		it("child closing inherited FD does not affect parent", async () => {
+			const driver = new MockRuntimeDriver(["parent-cmd", "child-cmd"]);
+			const { kernel: k, vfs } = await createTestKernel({ drivers: [driver] });
+			kernel = k;
+			const ki = driver.kernelInterface!;
+
+			await vfs.writeFile("/tmp/file.txt", "still readable");
+
+			const parent = kernel.spawn("parent-cmd", []);
+			const fd = ki.fdOpen(parent.pid, "/tmp/file.txt", 0);
+
+			// Spawn child and close the inherited FD
+			const child = ki.spawn("child-cmd", [], { ppid: parent.pid });
+			ki.fdClose(child.pid, fd);
+
+			// Child can no longer read
+			await expect(ki.fdRead(child.pid, fd, 100)).rejects.toThrow("EBADF");
+
+			// Parent can still read — not affected by child's close
+			const data = await ki.fdRead(parent.pid, fd, 100);
+			expect(new TextDecoder().decode(data)).toBe("still readable");
+
+			await parent.wait();
+			await child.wait();
+		});
+
+		it("child closing inherited pipe FD does not cause premature EOF", async () => {
+			const driver = new MockRuntimeDriver(["parent-cmd", "child-cmd"]);
+			const { kernel: k } = await createTestKernel({ drivers: [driver] });
+			kernel = k;
+			const ki = driver.kernelInterface!;
+
+			const parent = kernel.spawn("parent-cmd", []);
+
+			// Create a pipe in parent's FD table
+			const { readFd, writeFd } = ki.pipe(parent.pid);
+
+			// Spawn child — inherits both pipe ends
+			const child = ki.spawn("child-cmd", [], { ppid: parent.pid });
+
+			// Child closes its inherited write end
+			ki.fdClose(child.pid, writeFd);
+
+			// Parent writes to the pipe — should still work (parent's write end is open)
+			ki.fdWrite(parent.pid, writeFd, new TextEncoder().encode("pipe data"));
+
+			// Child reads from its inherited read end
+			const data = await ki.fdRead(child.pid, readFd, 100);
+			expect(new TextDecoder().decode(data)).toBe("pipe data");
+
+			await parent.wait();
+			await child.wait();
+		});
+	});
+
+	// -----------------------------------------------------------------------
 	// Filesystem convenience wrappers
 	// -----------------------------------------------------------------------
 

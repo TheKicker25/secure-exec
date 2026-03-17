@@ -39,7 +39,9 @@ Started: 2026-03-16
 - Integration test helpers at packages/secure-exec/tests/kernel/helpers.ts — createIntegrationKernel(), skipUnlessWasmBuilt(), skipUnlessPyodide()
 - SpawnOptions has stdinFd/stdoutFd/stderrFd for pipe wiring — these reference FDs in the caller's table, resolved via callerPid
 - KernelInterface.pipe(pid) installs pipe FDs in the process's table (returns actual FD numbers, not description IDs)
-- FDTableManager.createWithStdio() creates child FD table with custom pipe descriptions for overridden stdio
+- FDTableManager.fork() copies parent's FD table for child process — child inherits all open FDs with shared cursors
+- fdClose is refcount-aware for pipes: only calls pipeManager.close() when description.refCount drops to 0
+- Pipe descriptions start with refCount=0 (not 1); openWith() provides the real reference count
 - fdRead for pipes now routes through PipeManager.read() (was returning empty array)
 - When stdout/stderr is piped, spawnInternal skips callback buffering — data flows through kernel pipe, not postMessage/callbacks
 - Rust FFI proc_spawn takes argv_ptr+len, envp_ptr+len, stdin/stdout/stderr FDs, cwd_ptr+len, ret_pid (10 params)
@@ -461,4 +463,23 @@ Started: 2026-03-16
   - kernel.exec() supports { cwd } option for setting working directory — needed for require('./relative') tests
   - kernel.writeFile creates intermediate directories automatically (e.g., /app/node_modules/my-pkg/index.js)
   - For JSON require tests, use JSON.stringify() to write valid JSON to VFS
+---
+
+## 2026-03-16 - US-029
+- Implemented FD inheritance for child processes via FDTableManager.fork
+- Kernel changes (packages/kernel/src/):
+  - kernel.ts: Modified createChildFDTable() to fork parent's FD table when callerPid exists, added applyStdioOverride() helper for pipe FD overrides on top of forked table
+  - kernel.ts: Made fdClose refcount-aware — pipe ends only closed (EOF signaled) when last reference is dropped, preventing premature EOF when inherited pipe FDs are closed by child
+  - pipe-manager.ts: Changed pipe description initial refCount from 1 to 0 (no phantom reference — openWith() properly bumps on FD table install)
+- Tests:
+  - 4 new kernel unit tests (kernel-integration.test.ts): child inherits FDs, shared cursor position, child close independence, inherited pipe FD safety
+  - 5 new integration tests (fd-inheritance.test.ts): output redirection, input redirection, append mode, pipeline data flow, cross-runtime Node+VFS redirection
+- Removed: resolveStdioOverride() and createWithStdio codepath (replaced by fork + applyStdioOverride)
+- Files changed: kernel.ts, pipe-manager.ts, kernel-integration.test.ts, fd-inheritance.test.ts (new)
+- 59 kernel tests pass, 157 secure-exec tests pass (61 skipped — WASM/pyodide), 358 WasmVM tests pass, 22 Node driver tests pass, typecheck passes
+- **Learnings for future iterations:**
+  - Pipe descriptions created by PipeManager.createPipe() must start with refCount=0 — openWith() provides the real reference count
+  - fdClose must be refcount-aware for pipes: call pipeManager.close() only when description.refCount drops to 0, otherwise inherited pipe FDs cause premature EOF
+  - fork() shares FileDescription objects by reference — cursor position is automatically shared between parent and child FD entries
+  - applyStdioOverride pattern: close inherited FD, then openWith to install override — cleaner than creating custom tables from scratch
 ---

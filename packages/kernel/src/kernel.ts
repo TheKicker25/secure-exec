@@ -18,7 +18,6 @@ import type {
 	ProcessContext,
 	ProcessInfo,
 	FDStat,
-	FileDescription,
 } from "./types.js";
 import type { VirtualFileSystem, VirtualStat } from "./vfs.js";
 import { createDeviceLayer } from "./device-layer.js";
@@ -32,8 +31,6 @@ import {
 	FILETYPE_REGULAR_FILE,
 	FILETYPE_DIRECTORY,
 	FILETYPE_PIPE,
-	O_RDONLY,
-	O_WRONLY,
 } from "./types.js";
 
 export function createKernel(options: KernelOptions): Kernel {
@@ -352,10 +349,18 @@ class KernelImpl implements Kernel {
 			fdClose: (pid, fd) => {
 				const table = this.getTable(pid);
 				const entry = table.get(fd);
-				if (entry && this.pipeManager.isPipe(entry.description.id)) {
-					this.pipeManager.close(entry.description.id);
-				}
+				if (!entry) return;
+
+				const descId = entry.description.id;
+				const isPipe = this.pipeManager.isPipe(descId);
+
+				// Close FD first (decrements refCount on shared FileDescription)
 				table.close(fd);
+
+				// Only signal pipe closure when last reference is dropped
+				if (isPipe && entry.description.refCount <= 0) {
+					this.pipeManager.close(descId);
+				}
 			},
 			fdSeek: (pid, fd, offset, whence) => {
 				const table = this.getTable(pid);
@@ -418,57 +423,56 @@ class KernelImpl implements Kernel {
 	}
 
 	/**
-	 * Create FD table for a child process, wiring pipe FD overrides when provided.
+	 * Create FD table for a child process via fork + optional FD overrides.
 	 *
-	 * When stdinFd/stdoutFd/stderrFd are set in options, looks up the
-	 * FileDescription from the caller's FD table and installs it as
-	 * FD 0/1/2 in the child's table. u32::MAX (4294967295) maps to /dev/null.
+	 * When callerPid exists, forks the parent's FD table so the child inherits
+	 * all open FDs (shared cursors via refcounted FileDescription). Then applies
+	 * stdinFd/stdoutFd/stderrFd overrides on top of the forked table.
 	 */
 	private createChildFDTable(
 		childPid: number,
 		options?: SpawnOptions,
 		callerPid?: number,
 	): ProcessFDTable {
-		const hasFdOverrides =
-			options?.stdinFd !== undefined ||
-			options?.stdoutFd !== undefined ||
-			options?.stderrFd !== undefined;
+		// Fork parent's FD table if parent exists
+		if (callerPid && this.fdTableManager.get(callerPid)) {
+			const table = this.fdTableManager.fork(callerPid, childPid);
 
-		if (!hasFdOverrides || !callerPid) {
-			return this.fdTableManager.create(childPid);
+			// Apply FD overrides on top of the forked table
+			const hasFdOverrides =
+				options?.stdinFd !== undefined ||
+				options?.stdoutFd !== undefined ||
+				options?.stderrFd !== undefined;
+
+			if (hasFdOverrides) {
+				const callerTable = this.fdTableManager.get(callerPid)!;
+				this.applyStdioOverride(table, callerTable, 0, options!.stdinFd);
+				this.applyStdioOverride(table, callerTable, 1, options!.stdoutFd);
+				this.applyStdioOverride(table, callerTable, 2, options!.stderrFd);
+			}
+
+			return table;
 		}
 
-		const callerTable = this.fdTableManager.get(callerPid);
-		if (!callerTable) {
-			return this.fdTableManager.create(childPid);
-		}
-
-		// Resolve FileDescriptions for each overridden FD
-		const stdinDesc = this.resolveStdioOverride(callerTable, options!.stdinFd, "/dev/stdin", O_RDONLY);
-		const stdoutDesc = this.resolveStdioOverride(callerTable, options!.stdoutFd, "/dev/stdout", O_WRONLY);
-		const stderrDesc = this.resolveStdioOverride(callerTable, options!.stderrFd, "/dev/stderr", O_WRONLY);
-
-		return this.fdTableManager.createWithStdio(childPid, stdinDesc, stdoutDesc, stderrDesc);
+		return this.fdTableManager.create(childPid);
 	}
 
-	/** Resolve an FD override: look up in caller's table, or use default device path. */
-	private resolveStdioOverride(
+	/** Close inherited stdio FD and install an override from the caller's table. */
+	private applyStdioOverride(
+		childTable: ProcessFDTable,
 		callerTable: ProcessFDTable,
+		targetFd: number,
 		overrideFd: number | undefined,
-		defaultPath: string,
-		defaultFlags: number,
-	): { description: FileDescription; filetype: number } | null {
-		if (overrideFd === undefined) return null;
-
-		// u32::MAX = /dev/null sentinel from Rust Stdio::Null
-		if (overrideFd === 0xFFFFFFFF) {
-			return null; // Use default — device layer handles /dev/null
-		}
+	): void {
+		if (overrideFd === undefined) return;
+		if (overrideFd === 0xFFFFFFFF) return; // /dev/null sentinel — keep inherited
 
 		const entry = callerTable.get(overrideFd);
-		if (!entry) return null; // FD not found — fall back to default
+		if (!entry) return;
 
-		return { description: entry.description, filetype: entry.filetype };
+		// Close the inherited FD and install the override
+		childTable.close(targetFd);
+		childTable.openWith(entry.description, entry.filetype, targetFd);
 	}
 
 	/** Check if a stdio FD (0/1/2) in a process's table is a pipe. */

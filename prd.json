@@ -523,8 +523,8 @@
         "Tests pass"
       ],
       "priority": 29,
-      "passes": false,
-      "notes": "Two test layers: kernel unit tests with MockRuntimeDriver (packages/kernel/test/) for FD table mechanics, and integration tests with real runtimes (packages/secure-exec/tests/kernel/) for end-to-end redirections."
+      "passes": true,
+      "notes": "FD inheritance via fork + refcount-aware pipe close"
     },
     {
       "id": "US-030",
