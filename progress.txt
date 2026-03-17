@@ -574,3 +574,17 @@ Started: 2026-03-16
   - Top-level await `await checkNetwork()` works in vitest ESM modules for skip condition evaluation
   - left-pad is a good test dependency: tiny, no native deps, no lifecycle scripts, fast to install
 ---
+
+## 2026-03-16 - US-034
+- Created packages/secure-exec/tests/kernel/e2e-npx-and-pipes.test.ts
+- npx test: `npx -y semver 1.2.3` with network availability check, uses createIntegrationKernel
+- Pipe test 1: `echo 1+2 | node -e "..."` evaluates expression, outputs '3'
+- Pipe test 2: `echo hello world | node -e "..."` with end event, outputs 'HELLO WORLD'
+- Pipe test 3: `cat /tmp/data.txt | node -e "..."` reads VFS file, outputs 'HELLO FROM FILE'
+- All tests skip gracefully when WASM binary not built (consistent with other e2e tests)
+- **Learnings for future iterations:**
+  - npx tests need network check similar to npm install tests — use async checkNetwork() inside test body
+  - Pipe tests with createIntegrationKernel (InMemoryFileSystem) work for echo/cat→node patterns
+  - For VFS file tests, must mkdir parent dirs before writeFile (e.g., kernel.mkdir('/tmp'))
+  - Template literals work well for shell commands with mixed quote types (double quotes for -e arg, single quotes inside JS)
+---
