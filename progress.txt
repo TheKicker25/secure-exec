@@ -29,6 +29,11 @@ Started: 2026-03-16
 - npm/npx entry scripts resolved from host Node installation (walks up from process.execPath)
 - Kernel spawnManaged forwards onStdout/onStderr from SpawnOptions to InternalProcess callbacks
 - NodeExecutionDriver.exec() captures process.exit(N) via regex on error message — returns { code: N }
+- Python RuntimeDriver package is `@secure-exec/runtime-python` at packages/runtime/python/
+- createPythonRuntime() wraps Pyodide behind kernel RuntimeDriver interface with single shared Worker
+- Inside String.raw template literals, use `\n` (not `\\n`) for newlines in embedded JS string literals — String.raw preserves the backslash, then JS eval processes `\n` as newline
+- Pyodide worker uses postMessage RPC (async); os.system/subprocess monkey-patched to call kernelSpawn RPC
+- Python kernel_spawn JS function is async — Pyodide converts JS Promise to awaitable Python coroutine automatically in runPythonAsync context
 
 ---
 
@@ -248,4 +253,31 @@ Started: 2026-03-16
   - process.exit(N) inside isolate may not propagate exact exit code through kernel layer — depends on ProcessExitError regex match in execution.ts
   - Kernel test helpers (MockRuntimeDriver) are not exported from @secure-exec/kernel package — inline mocks in consumer tests
   - secure-exec doesn't export SpawnedProcess type from index.ts — use inline return type or type inference
+---
+
+## 2026-03-16 - US-019
+- Created Python RuntimeDriver package at packages/runtime/python/
+- New source files:
+  - driver.ts — PythonRuntimeDriver class with createPythonRuntime() factory
+  - index.ts — re-exports
+- Architecture:
+  - Single shared Pyodide Worker thread (lazy-loaded on first spawn, reused across spawns)
+  - Worker loads Pyodide once, handles sequential spawn messages
+  - kernelSpawn RPC: Python os.system/subprocess.run/Popen/call/check_call/check_output monkey-patched to call kernelSpawn('command', args_json, env_json, cwd) via host RPC bridge → main thread calls kernel.spawn()
+  - fsReadTextFile RPC: routes through kernel.vfs.readTextFile()
+  - Stdout/stderr forwarded via postMessage to ctx.onStdout/proc.onStdout
+  - Entry resolution: python/python3 -c code, -m module, script.py from VFS; pip returns unsupported error
+  - SystemExit in Python caught and converted to exit code
+- Fixed String.raw template literal escaping: use `\n` not `\\n` for newlines in embedded JS strings
+- 22 tests covering: factory, lifecycle, kernel mounting, pyodide integration (inline code, stdout capture, errors, VFS scripts, python3 alias, pip, no args, dispose), kernelSpawn RPC (os.system routing, subprocess.run routing), exploit/abuse paths (host fs access, SystemExit, subprocess with mock)
+- All 21 existing secure-exec Python tests still pass
+- Files changed: driver.ts (new), index.ts (new), driver.test.ts (new), package.json (new), tsconfig.json (new), vitest.config.ts (new)
+- 22 Python driver tests pass, 48 kernel tests pass, 358 WasmVM tests pass, 20 Node driver tests pass, typecheck passes
+- **Learnings for future iterations:**
+  - Inside String.raw template literals, `\\n` becomes literal backslash-n (3 chars); use `\n` (2 chars) which String.raw preserves, then JS eval processes as newline
+  - Pyodide loading is expensive (~800ms per worker); use a shared worker model, not per-spawn workers
+  - os.chdir() in Pyodide may fail if directory doesn't exist in emscripten VFS — wrap in try/except
+  - Pyodide auto-converts async JS function returns (Promises) to Python awaitables in runPythonAsync context
+  - Empty env objects `{}` are truthy — check Object.keys(env).length > 0 before applying env overrides to avoid unnecessary Python code execution
+  - SimpleVFS test helper is reusable across runtime driver tests — consider extracting to shared test utils
 ---

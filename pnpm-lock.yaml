@@ -138,6 +138,25 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.19.3)(@vitest/browser@2.1.9)
 
+  packages/runtime/python:
+    dependencies:
+      '@secure-exec/kernel':
+        specifier: workspace:*
+        version: link:../../kernel
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.2
+        version: 22.19.3
+      pyodide:
+        specifier: ^0.28.3
+        version: 0.28.3
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.19.3)(@vitest/browser@2.1.9)
+
   packages/runtime/wasmvm:
     dependencies:
       '@secure-exec/kernel':

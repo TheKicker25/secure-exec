@@ -336,8 +336,8 @@
         "Tests pass"
       ],
       "priority": 19,
-      "passes": false,
-      "notes": "Pyodide's os.system() raises ENOSYS by default because WASI doesn't support system(). The Python RuntimeDriver must add a kernelSpawn RPC to the worker's callHost mechanism and monkey-patch os.system/subprocess to use it. This enables 'python -c \"import os; os.system('echo hello')\"' to work through the kernel."
+      "passes": true,
+      "notes": "Completed: createPythonRuntime() factory at packages/runtime/python/src/driver.ts. Single shared Pyodide worker with kernelSpawn RPC. os.system/subprocess monkey-patched to route through kernel.spawn(). 22 tests pass, existing Python tests pass."
     },
     {
       "id": "US-020",
