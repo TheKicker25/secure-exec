@@ -267,7 +267,9 @@ export class MockRuntimeDriver implements RuntimeDriver {
 			},
 			kill(_signal) {
 				config.killSignals?.push(_signal);
-				exitResolve!(128 + _signal);
+				const code = 128 + _signal;
+				exitResolve!(code);
+				proc.onExit?.(code);
 			},
 			wait() { return exitPromise; },
 			onStdout: null,

@@ -62,6 +62,11 @@ class KernelImpl implements Kernel {
 		this.env = { ...options.env };
 		this.cwd = options.cwd ?? "/home/user";
 		this.userManager = new UserManager();
+
+		// Clean up FD table when a process exits
+		this.processTable.onProcessExit = (pid) => {
+			this.cleanupProcessFDs(pid);
+		};
 	}
 
 	// -----------------------------------------------------------------------
@@ -480,6 +485,30 @@ class KernelImpl implements Kernel {
 		const entry = table.get(fd);
 		if (!entry) return false;
 		return this.pipeManager.isPipe(entry.description.id);
+	}
+
+	/** Clean up all FDs for a process, closing pipe ends when last reference drops. */
+	private cleanupProcessFDs(pid: number): void {
+		const table = this.fdTableManager.get(pid);
+		if (!table) return;
+
+		// Collect pipe descriptions before closing so we can check refCounts after
+		const pipeDescs: { id: number; description: { refCount: number } }[] = [];
+		for (const entry of table) {
+			if (this.pipeManager.isPipe(entry.description.id)) {
+				pipeDescs.push({ id: entry.description.id, description: entry.description });
+			}
+		}
+
+		// Close all FDs and remove the table
+		this.fdTableManager.remove(pid);
+
+		// Signal pipe closure for descriptions whose last reference was dropped
+		for (const { id, description } of pipeDescs) {
+			if (description.refCount <= 0) {
+				this.pipeManager.close(id);
+			}
+		}
 	}
 
 	private getTable(pid: number): ProcessFDTable {

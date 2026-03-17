@@ -138,7 +138,7 @@ describe("kernel + MockRuntimeDriver integration", () => {
 	// -----------------------------------------------------------------------
 
 	it("fdRead returns file content at cursor position", async () => {
-		const driver = new MockRuntimeDriver(["x"]);
+		const driver = new MockRuntimeDriver(["x"], { x: { neverExit: true } });
 		const { kernel: k, vfs } = await createTestKernel({ drivers: [driver] });
 		kernel = k;
 
@@ -146,7 +146,6 @@ describe("kernel + MockRuntimeDriver integration", () => {
 		await vfs.writeFile("/tmp/test.txt", "hello world");
 
 		const ki = driver.kernelInterface!;
-		const pid = 1; // Use a known PID
 
 		// Spawn a process to get a valid PID in the FD table
 		const proc = kernel.spawn("x", []);
@@ -167,6 +166,7 @@ describe("kernel + MockRuntimeDriver integration", () => {
 		const data3 = await ki.fdRead(proc.pid, fd, 10);
 		expect(data3.length).toBe(0);
 
+		proc.kill(9);
 		await proc.wait();
 	});
 
@@ -318,7 +318,10 @@ describe("kernel + MockRuntimeDriver integration", () => {
 
 	describe("FD inheritance", () => {
 		it("child inherits parent FD table via fork", async () => {
-			const driver = new MockRuntimeDriver(["parent-cmd", "child-cmd"]);
+			const driver = new MockRuntimeDriver(["parent-cmd", "child-cmd"], {
+				"parent-cmd": { neverExit: true },
+				"child-cmd": { neverExit: true },
+			});
 			const { kernel: k, vfs } = await createTestKernel({ drivers: [driver] });
 			kernel = k;
 			const ki = driver.kernelInterface!;
@@ -337,12 +340,17 @@ describe("kernel + MockRuntimeDriver integration", () => {
 			const data = await ki.fdRead(child.pid, fd, 100);
 			expect(new TextDecoder().decode(data)).toBe("inherited content");
 
+			parent.kill(9);
+			child.kill(9);
 			await parent.wait();
 			await child.wait();
 		});
 
 		it("inherited FDs share cursor position with parent", async () => {
-			const driver = new MockRuntimeDriver(["parent-cmd", "child-cmd"]);
+			const driver = new MockRuntimeDriver(["parent-cmd", "child-cmd"], {
+				"parent-cmd": { neverExit: true },
+				"child-cmd": { neverExit: true },
+			});
 			const { kernel: k, vfs } = await createTestKernel({ drivers: [driver] });
 			kernel = k;
 			const ki = driver.kernelInterface!;
@@ -363,12 +371,17 @@ describe("kernel + MockRuntimeDriver integration", () => {
 			const data2 = await ki.fdRead(child.pid, fd, 100);
 			expect(new TextDecoder().decode(data2)).toBe(" world");
 
+			parent.kill(9);
+			child.kill(9);
 			await parent.wait();
 			await child.wait();
 		});
 
 		it("child closing inherited FD does not affect parent", async () => {
-			const driver = new MockRuntimeDriver(["parent-cmd", "child-cmd"]);
+			const driver = new MockRuntimeDriver(["parent-cmd", "child-cmd"], {
+				"parent-cmd": { neverExit: true },
+				"child-cmd": { neverExit: true },
+			});
 			const { kernel: k, vfs } = await createTestKernel({ drivers: [driver] });
 			kernel = k;
 			const ki = driver.kernelInterface!;
@@ -389,12 +402,17 @@ describe("kernel + MockRuntimeDriver integration", () => {
 			const data = await ki.fdRead(parent.pid, fd, 100);
 			expect(new TextDecoder().decode(data)).toBe("still readable");
 
+			parent.kill(9);
+			child.kill(9);
 			await parent.wait();
 			await child.wait();
 		});
 
 		it("child closing inherited pipe FD does not cause premature EOF", async () => {
-			const driver = new MockRuntimeDriver(["parent-cmd", "child-cmd"]);
+			const driver = new MockRuntimeDriver(["parent-cmd", "child-cmd"], {
+				"parent-cmd": { neverExit: true },
+				"child-cmd": { neverExit: true },
+			});
 			const { kernel: k } = await createTestKernel({ drivers: [driver] });
 			kernel = k;
 			const ki = driver.kernelInterface!;
@@ -417,6 +435,8 @@ describe("kernel + MockRuntimeDriver integration", () => {
 			const data = await ki.fdRead(child.pid, readFd, 100);
 			expect(new TextDecoder().decode(data)).toBe("pipe data");
 
+			parent.kill(9);
+			child.kill(9);
 			await parent.wait();
 			await child.wait();
 		});
@@ -578,5 +598,94 @@ describe("kernel + MockRuntimeDriver integration", () => {
 
 		const bytes = await kernel.readFile("/tmp/data.txt");
 		expect(new TextDecoder().decode(bytes)).toBe("content");
+	});
+
+	// -----------------------------------------------------------------------
+	// FD table cleanup on process exit (US-001)
+	// -----------------------------------------------------------------------
+
+	describe("FD table cleanup on process exit", () => {
+		it("FD table is removed after process exits", async () => {
+			const driver = new MockRuntimeDriver(["cmd"]);
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+			const ki = driver.kernelInterface!;
+
+			const proc = kernel.spawn("cmd", []);
+			// FD operations work while process is running
+			const fd = ki.fdOpen(proc.pid, "/tmp/test", 0x201); // O_CREAT | O_WRONLY
+			expect(fd).toBeGreaterThanOrEqual(3);
+
+			await proc.wait();
+
+			// After exit, FD table should be removed — operations throw ESRCH
+			expect(() => ki.fdOpen(proc.pid, "/tmp/x", 0)).toThrow("ESRCH");
+		});
+
+		it("spawn N processes, all exit, no FD tables remain", async () => {
+			const N = 20;
+			const commands = Array.from({ length: N }, (_, i) => `cmd-${i}`);
+			const configs: Record<string, MockCommandConfig> = {};
+			for (const cmd of commands) configs[cmd] = { exitCode: 0 };
+
+			const driver = new MockRuntimeDriver(commands, configs);
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+			const ki = driver.kernelInterface!;
+
+			// Spawn all, collect PIDs
+			const procs = commands.map((cmd) => kernel.spawn(cmd, []));
+			const pids = procs.map((p) => p.pid);
+
+			// Wait for all to exit
+			await Promise.all(procs.map((p) => p.wait()));
+
+			// Every PID's FD table should be cleaned up
+			for (const pid of pids) {
+				expect(() => ki.fdOpen(pid, "/tmp/x", 0)).toThrow("ESRCH");
+			}
+		});
+
+		it("pipe read/write FileDescriptions are freed after both endpoints' processes exit", async () => {
+			const driver = new MockRuntimeDriver(["writer", "reader"], {
+				writer: { neverExit: true },
+				reader: { neverExit: true },
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+			const ki = driver.kernelInterface!;
+
+			// Spawn writer, create pipe in its FD table
+			const writer = kernel.spawn("writer", []);
+			const { readFd, writeFd } = ki.pipe(writer.pid);
+
+			// Spawn reader as child of writer — inherits pipe FDs
+			const reader = ki.spawn("reader", [], { ppid: writer.pid });
+
+			// Writer closes read end, reader closes write end (normal pipe usage)
+			ki.fdClose(writer.pid, readFd);
+			ki.fdClose(reader.pid, writeFd);
+
+			// Write data through the pipe
+			ki.fdWrite(writer.pid, writeFd, new TextEncoder().encode("pipe-data"));
+
+			// Reader can read the data
+			const data = await ki.fdRead(reader.pid, readFd, 100);
+			expect(new TextDecoder().decode(data)).toBe("pipe-data");
+
+			// Kill writer — its FD table (including write end) is cleaned up
+			writer.kill(9);
+			await writer.wait();
+
+			// Write end refCount should have dropped to 0, pipe signals EOF
+			// Reader gets EOF (pipe returns null, fdRead converts to empty Uint8Array)
+			const eof = await ki.fdRead(reader.pid, readFd, 100);
+			expect(eof.length).toBe(0);
+
+			// Kill reader to clean up
+			reader.kill(9);
+			await reader.wait();
+
+			// Both FD tables should be gone
+			expect(() => ki.fdOpen(writer.pid, "/tmp/x", 0)).toThrow("ESRCH");
+			expect(() => ki.fdOpen(reader.pid, "/tmp/x", 0)).toThrow("ESRCH");
+		});
 	});
 });

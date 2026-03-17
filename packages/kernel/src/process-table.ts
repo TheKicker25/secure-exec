@@ -15,6 +15,9 @@ export class ProcessTable {
 	private nextPid = 1;
 	private waiters: Map<number, Array<(info: { pid: number; status: number }) => void>> = new Map();
 
+	/** Called when a process exits, before waiters are notified. */
+	onProcessExit: ((pid: number) => void) | null = null;
+
 	/** Atomically allocate the next PID. */
 	allocatePid(): number {
 		return this.nextPid++;
@@ -65,6 +68,9 @@ export class ProcessTable {
 		entry.status = "exited";
 		entry.exitCode = exitCode;
 		entry.exitTime = Date.now();
+
+		// Clean up process resources (FD table, pipe ends)
+		this.onProcessExit?.(pid);
 
 		// Notify waiters
 		const waiters = this.waiters.get(pid);

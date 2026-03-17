@@ -197,6 +197,11 @@ export class ProcessFDTable {
 		}
 	}
 
+	/** Iterate all FD entries (for cleanup inspection). */
+	*[Symbol.iterator](): IterableIterator<FDEntry> {
+		yield* this.entries.values();
+	}
+
 	private allocateFd(): number {
 		// Find lowest available FD >= nextFd hint
 		while (this.entries.has(this.nextFd)) {
@@ -268,6 +273,16 @@ export class FDTableManager {
 
 	get(pid: number): ProcessFDTable | undefined {
 		return this.tables.get(pid);
+	}
+
+	/** Check whether a PID has an FD table. */
+	has(pid: number): boolean {
+		return this.tables.has(pid);
+	}
+
+	/** Number of active FD tables. */
+	get size(): number {
+		return this.tables.size;
 	}
 
 	/** Remove and close all FDs for a process. */
