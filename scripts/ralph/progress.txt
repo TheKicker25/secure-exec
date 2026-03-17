@@ -31,3 +31,18 @@ Started: Tue Mar 17 02:30:23 AM PDT 2026
   - FD cleanup must happen before waiter notification so pipe EOFs are signaled before consumers are notified
   - The "stubborn" process test in signal forwarding has a custom kill handler that does NOT call onExit — this is intentional for that test
 ---
+
+## 2026-03-17 16:45 PDT - US-048
+- **Implemented**: Verified zombie timer cleanup tests already meet all acceptance criteria
+- **What was done**:
+  - Implementation from prior US-048 commit (060f4a7) already satisfies all post-review acceptance criteria
+  - ProcessTable.zombieTimerCount getter exists (process-table.ts:72-74)
+  - 4 tests verify: timer scheduled on exit, timer cleared on dispose, no callbacks after advancing 60s, multi-process cleanup
+  - Tests provably fail if clearTimeout is not called: zombieTimerCount assertion and process entry existence check after timer advance
+  - All 127 kernel integration tests pass, typecheck clean
+- **Files changed**:
+  - `scripts/ralph/prd.json` — marked US-048 passes: true
+- **Learnings for future iterations:**
+  - Post-review resets may not require code changes if the prior implementation already meets the updated criteria — always verify before reimplementing
+  - vi.useFakeTimers() with vi.advanceTimersByTime() is the pattern for testing timer-based cleanup in this codebase
+---
