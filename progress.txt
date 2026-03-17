@@ -404,3 +404,16 @@ Started: 2026-03-16
   - _isFdPiped() in WasmVM driver correctly detects piped FD 0 after dup2, telling worker to use stdinReader
   - Node driver's stdinPromise auto-resolves via queueMicrotask — writeStdin must be called synchronously after spawn() returns
 ---
+
+## 2026-03-16 - US-025
+- Created vfs-consistency.test.ts with 5 cross-runtime VFS tests
+- Tests cover all acceptance criteria: kernel→Node read, Node→WasmVM cat, Node→kernel API, directory listing consistency, ENOENT consistency
+- All tests use createIntegrationKernel({ runtimes: ['wasmvm', 'node'] })
+- Gracefully skipped when WASM binary not built (describe.skipIf)
+- Files changed: packages/secure-exec/tests/kernel/vfs-consistency.test.ts (new)
+- 157 secure-exec tests pass (5 VFS tests skipped — WASM not built), typecheck passes
+- **Learnings for future iterations:**
+  - kernel.writeFile accepts string|Uint8Array, vfs.readTextFile returns string — use readTextFile for string assertions
+  - Node code in exec uses require('fs') — the bridge intercepts fs calls and routes to kernel VFS
+  - WasmVM ls output may have varying whitespace — split on /\s+/ and filter(Boolean) for reliable parsing
+---
