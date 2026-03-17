@@ -5,6 +5,7 @@
 
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -16,7 +17,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const WASM_PATH = join(__dirname, '../../target/wasm32-wasip1/release/multicall.wasm');
 const WORKER_SCRIPT = join(__dirname, '../src/worker-entry.ts');
 
-describe('Parallel pipeline', { timeout: 60000 }, () => {
+describe('Parallel pipeline', { timeout: 60000, skip: !existsSync(WASM_PATH) ? 'WASM binary not built' : undefined }, () => {
   let wasmBinary: Uint8Array<ArrayBuffer>;
 
   before(async () => {

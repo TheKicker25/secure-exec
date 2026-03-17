@@ -11,7 +11,7 @@
  * Falls back to sequential mode if SharedArrayBuffer is unavailable.
  */
 
-import { WorkerAdapter, WorkerHandle } from './worker-adapter.ts';
+import { WorkerAdapter, type WorkerHandle } from './worker-adapter.ts';
 import { VFS } from './vfs.ts';
 import { createRingBuffer } from './ring-buffer.ts';
 

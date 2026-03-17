@@ -8,6 +8,7 @@
 
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -16,7 +17,7 @@ import { WasmOS } from '../src/wasm-os.ts';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const WASM_PATH = join(__dirname, '../../target/wasm32-wasip1/release/multicall.wasm');
 
-describe('Subprocess: error handling', { timeout: 60000 }, () => {
+describe('Subprocess: error handling', { timeout: 60000, skip: !existsSync(WASM_PATH) ? 'WASM binary not built' : undefined }, () => {
   let os: WasmOS;
 
   before(async () => {
@@ -67,7 +68,7 @@ describe('Subprocess: error handling', { timeout: 60000 }, () => {
   });
 });
 
-describe('Subprocess: concurrent and sequential spawns', { timeout: 60000 }, () => {
+describe('Subprocess: concurrent and sequential spawns', { timeout: 60000, skip: !existsSync(WASM_PATH) ? 'WASM binary not built' : undefined }, () => {
   let os: WasmOS;
 
   before(async () => {
@@ -109,7 +110,7 @@ describe('Subprocess: concurrent and sequential spawns', { timeout: 60000 }, () 
   });
 });
 
-describe('Subprocess: nested subshells and command substitution', { timeout: 60000 }, () => {
+describe('Subprocess: nested subshells and command substitution', { timeout: 60000, skip: !existsSync(WASM_PATH) ? 'WASM binary not built' : undefined }, () => {
   let os: WasmOS;
 
   before(async () => {
@@ -152,7 +153,7 @@ describe('Subprocess: nested subshells and command substitution', { timeout: 600
   });
 });
 
-describe('Subprocess: complex redirections', { timeout: 60000 }, () => {
+describe('Subprocess: complex redirections', { timeout: 60000, skip: !existsSync(WASM_PATH) ? 'WASM binary not built' : undefined }, () => {
   let os: WasmOS;
 
   before(async () => {
@@ -194,7 +195,7 @@ describe('Subprocess: complex redirections', { timeout: 60000 }, () => {
   });
 });
 
-describe('Subprocess: advanced shell features', { timeout: 60000 }, () => {
+describe('Subprocess: advanced shell features', { timeout: 60000, skip: !existsSync(WASM_PATH) ? 'WASM binary not built' : undefined }, () => {
   let os: WasmOS;
 
   before(async () => {
@@ -272,7 +273,7 @@ describe('Subprocess: advanced shell features', { timeout: 60000 }, () => {
   });
 });
 
-describe('Subprocess: exit code edge cases', { timeout: 60000 }, () => {
+describe('Subprocess: exit code edge cases', { timeout: 60000, skip: !existsSync(WASM_PATH) ? 'WASM binary not built' : undefined }, () => {
   let os: WasmOS;
 
   before(async () => {

@@ -11,6 +11,7 @@
 
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -19,7 +20,7 @@ import { WasmOS } from '../src/wasm-os.ts';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const WASM_PATH = join(__dirname, '../../target/wasm32-wasip1/release/multicall.wasm');
 
-describe('Phase 1 integration: single commands via brush-shell', { timeout: 30000 }, () => {
+describe('Phase 1 integration: single commands via brush-shell', { timeout: 30000, skip: !existsSync(WASM_PATH) ? 'WASM binary not built' : undefined }, () => {
   let os: WasmOS;
 
   before(async () => {
@@ -35,7 +36,7 @@ describe('Phase 1 integration: single commands via brush-shell', { timeout: 3000
   });
 });
 
-describe('Phase 1 integration: pipelines via brush-shell', { timeout: 30000 }, () => {
+describe('Phase 1 integration: pipelines via brush-shell', { timeout: 30000, skip: !existsSync(WASM_PATH) ? 'WASM binary not built' : undefined }, () => {
   let os: WasmOS;
 
   before(async () => {
@@ -71,7 +72,7 @@ describe('Phase 1 integration: pipelines via brush-shell', { timeout: 30000 }, (
   });
 });
 
-describe('Phase 1 integration: command substitution', { timeout: 30000 }, () => {
+describe('Phase 1 integration: command substitution', { timeout: 30000, skip: !existsSync(WASM_PATH) ? 'WASM binary not built' : undefined }, () => {
   let os: WasmOS;
 
   before(async () => {
@@ -93,7 +94,7 @@ describe('Phase 1 integration: command substitution', { timeout: 30000 }, () => 
   });
 });
 
-describe('Phase 1 integration: subshells', { timeout: 30000 }, () => {
+describe('Phase 1 integration: subshells', { timeout: 30000, skip: !existsSync(WASM_PATH) ? 'WASM binary not built' : undefined }, () => {
   let os: WasmOS;
 
   before(async () => {
@@ -109,7 +110,7 @@ describe('Phase 1 integration: subshells', { timeout: 30000 }, () => {
   });
 });
 
-describe('Phase 1 integration: exit code propagation', { timeout: 30000 }, () => {
+describe('Phase 1 integration: exit code propagation', { timeout: 30000, skip: !existsSync(WASM_PATH) ? 'WASM binary not built' : undefined }, () => {
   let os: WasmOS;
 
   before(async () => {

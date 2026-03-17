@@ -34,12 +34,12 @@ interface WasmOSInternals {
 
 describe('index.js exports', () => {
   it('re-exports WasmOS as named export', async () => {
-    const mod = await import('../src/index.js');
+    const mod = await import('../src/index.ts');
     assert.strictEqual(mod.WasmOS, WasmOS);
   });
 
   it('re-exports WasmOS as default export', async () => {
-    const mod = await import('../src/index.js');
+    const mod = await import('../src/index.ts');
     assert.strictEqual(mod.default, WasmOS);
   });
 });

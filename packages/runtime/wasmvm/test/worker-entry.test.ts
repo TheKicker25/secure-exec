@@ -7,7 +7,7 @@ import assert from 'node:assert';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { VFS } from '../src/vfs.ts';
-import { executeCommand, StreamCallback } from '../src/worker-entry.ts';
+import { executeCommand, type StreamCallback } from '../src/worker-entry.ts';
 import { WorkerAdapter } from '../src/worker-adapter.ts';
 import { createRingBuffer, RingBufferWriter } from '../src/ring-buffer.ts';
 import type { VfsSnapshotEntry } from '../src/vfs.ts';
