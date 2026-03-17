@@ -1,0 +1,33 @@
+# Ralph Progress Log
+Started: Tue Mar 17 02:30:23 AM PDT 2026
+---
+
+## Codebase Patterns
+- MockRuntimeDriver `kill()` now calls `proc.onExit?.(code)` — always wire onExit in custom test stubs that need FD cleanup
+- Tests doing async FD operations (fdRead, fdWrite) must use `neverExit: true` to prevent process from exiting mid-test; kill explicitly at end
+- `fdTableManager.remove(pid)` closes all FDs and removes the table; pipe ends need separate `pipeManager.close()` calls for descriptions whose refCount drops to 0
+- Kernel converts pipe EOF (null) to empty `Uint8Array(0)` in fdRead — test for `.length === 0` not `null`
+
+---
+
+## 2026-03-17 02:40 PDT - US-001
+- **Implemented**: FD table cleanup on process exit
+- **What was done**:
+  - Added `onProcessExit` callback to `ProcessTable.markExited()` — fires after state update, before waiter notification
+  - Added `cleanupProcessFDs(pid)` in kernel — iterates FD table, calls `fdTableManager.remove(pid)`, signals pipe closure for descriptions with refCount ≤ 0
+  - Added `[Symbol.iterator]()` to `ProcessFDTable` for cleanup inspection
+  - Added `has(pid)` and `size` getter to `FDTableManager` for observability
+  - Fixed `MockRuntimeDriver.kill()` to call `proc.onExit` (was missing, preventing markExited from firing on killed processes)
+  - Updated 4 existing tests to use `neverExit: true` for tests that do async FD operations
+  - Added 3 new tests: FD table removal after exit, N-process cleanup, pipe EOF after writer exits
+- **Files changed**:
+  - `packages/kernel/src/fd-table.ts` — iterator, has, size
+  - `packages/kernel/src/process-table.ts` — onProcessExit callback
+  - `packages/kernel/src/kernel.ts` — cleanupProcessFDs, constructor wiring
+  - `packages/kernel/test/helpers.ts` — fixed kill() to call onExit
+  - `packages/kernel/test/kernel-integration.test.ts` — fixed + new tests
+- **Learnings for future iterations:**
+  - ProcessTable.markExited fires synchronously inside the kill() call chain — cleanup happens before proc.wait() resolves
+  - FD cleanup must happen before waiter notification so pipe EOFs are signaled before consumers are notified
+  - The "stubborn" process test in signal forwarding has a custom kill handler that does NOT call onExit — this is intentional for that test
+---
