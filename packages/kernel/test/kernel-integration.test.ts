@@ -254,6 +254,65 @@ describe("kernel + MockRuntimeDriver integration", () => {
 	});
 
 	// -----------------------------------------------------------------------
+	// Dispose with active processes
+	// -----------------------------------------------------------------------
+
+	describe("dispose with active processes", () => {
+		it("dispose kills all running processes and resolves within 5s", async () => {
+			const killSignals: number[][] = [];
+			const commands: string[] = [];
+			const configs: Record<string, MockCommandConfig> = {};
+			for (let i = 0; i < 5; i++) {
+				const signals: number[] = [];
+				killSignals.push(signals);
+				const cmd = `hang-${i}`;
+				commands.push(cmd);
+				configs[cmd] = { neverExit: true, killSignals: signals };
+			}
+
+			const driver = new MockRuntimeDriver(commands, configs);
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			// Spawn 5 processes that never exit on their own
+			const procs = commands.map((cmd) => kernel.spawn(cmd, []));
+			expect(procs.length).toBe(5);
+
+			// All should be running
+			for (const proc of procs) {
+				expect(kernel.processes.get(proc.pid)?.status).toBe("running");
+			}
+
+			// Dispose should kill all and resolve quickly
+			const start = Date.now();
+			await kernel.dispose();
+			const elapsed = Date.now() - start;
+
+			expect(elapsed).toBeLessThan(5000);
+
+			// Every process received SIGTERM (signal 15)
+			for (const signals of killSignals) {
+				expect(signals).toContain(15);
+			}
+		}, 10_000);
+
+		it("spawn after dispose throws disposed", async () => {
+			const driver = new MockRuntimeDriver(["sh"], { sh: { exitCode: 0 } });
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			await kernel.dispose();
+			expect(() => kernel.spawn("sh", [])).toThrow("disposed");
+		});
+
+		it("exec after dispose rejects with disposed", async () => {
+			const driver = new MockRuntimeDriver(["sh"], { sh: { exitCode: 0 } });
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			await kernel.dispose();
+			await expect(kernel.exec("echo hello")).rejects.toThrow("disposed");
+		});
+	});
+
+	// -----------------------------------------------------------------------
 	// Filesystem convenience wrappers
 	// -----------------------------------------------------------------------
 

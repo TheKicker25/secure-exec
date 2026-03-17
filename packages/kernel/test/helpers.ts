@@ -217,6 +217,10 @@ export interface MockCommandConfig {
 	stdinCapture?: Uint8Array[];
 	/** If provided, called on closeStdin */
 	onCloseStdin?: () => void;
+	/** If true, process never exits on its own — only exits when kill() is called */
+	neverExit?: boolean;
+	/** If provided, kill signal numbers are pushed here when kill() is called */
+	killSignals?: number[];
 }
 
 /**
@@ -261,14 +265,19 @@ export class MockRuntimeDriver implements RuntimeDriver {
 			closeStdin() {
 				config.onCloseStdin?.();
 			},
-			kill(_signal) { exitResolve!(128 + _signal); },
+			kill(_signal) {
+				config.killSignals?.push(_signal);
+				exitResolve!(128 + _signal);
+			},
 			wait() { return exitPromise; },
 			onStdout: null,
 			onStderr: null,
 			onExit: null,
 		};
 
-		if (config.emitDuringSpawn) {
+		if (config.neverExit) {
+			// Process hangs forever — only exits when kill() is called
+		} else if (config.emitDuringSpawn) {
 			// Emit synchronously during spawn via ctx callbacks
 			if (stdoutData) ctx.onStdout?.(stdoutData);
 			if (stderrData) ctx.onStderr?.(stderrData);

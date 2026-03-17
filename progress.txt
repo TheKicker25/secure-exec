@@ -417,3 +417,22 @@ Started: 2026-03-16
   - Node code in exec uses require('fs') — the bridge intercepts fs calls and routes to kernel VFS
   - WasmVM ls output may have varying whitespace — split on /\s+/ and filter(Boolean) for reliable parsing
 ---
+
+## 2026-03-16 - US-026
+- Added `neverExit` and `killSignals` options to MockCommandConfig for testing long-running/hung processes
+- Created 'dispose with active processes' describe block in kernel-integration.test.ts:
+  - Spawn 5 never-exiting processes, verify all receive SIGTERM on dispose, resolves within 5s
+  - spawn after dispose throws 'disposed'
+  - exec after dispose rejects with 'disposed'
+- Created dispose-behavior.test.ts integration test with 3 tests:
+  - WasmVM 'sleep 60' terminated on dispose within 5s
+  - Node 'setTimeout(()=>{},60000)' terminated on dispose within 5s
+  - Both runtimes simultaneously terminated on dispose
+- Files changed: packages/kernel/test/helpers.ts, packages/kernel/test/kernel-integration.test.ts, packages/secure-exec/tests/kernel/dispose-behavior.test.ts (new)
+- 55 kernel tests pass, 157 secure-exec tests pass (3 dispose integration tests skipped — WASM not built), typecheck passes
+- **Learnings for future iterations:**
+  - ProcessTable.terminateAll() sends SIGTERM (15) to all running processes and waits up to 1s per process via Promise.race
+  - MockRuntimeDriver kill() resolves exitPromise with 128+signal — mirrors Unix convention
+  - `neverExit: true` config makes MockRuntimeDriver processes hang until explicitly killed — useful for dispose/timeout tests
+  - Integration dispose tests need 10s vitest timeout (second arg to it()) since processes may take time to clean up
+---

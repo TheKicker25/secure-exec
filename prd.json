@@ -466,8 +466,8 @@
         "Tests pass"
       ],
       "priority": 26,
-      "passes": false,
-      "notes": "Current dispose tests only run on idle kernels. Real-world dispose must handle active processes without hanging forever. The kernel should send SIGTERM to all active processes, wait briefly, then SIGKILL any survivors."
+      "passes": true,
+      "notes": "3 kernel unit tests (5-process kill, spawn-after-dispose, exec-after-dispose) + 3 integration tests (WasmVM sleep, Node setTimeout, both simultaneously). Integration tests gracefully skipped when WASM binary not built."
     },
     {
       "id": "US-027",
