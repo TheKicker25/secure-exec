@@ -1184,3 +1184,14 @@ PRD: ralph/kernel-hardening (46 stories)
   - Existing echo-worker.js pattern: import from node:worker_threads, parentPort.on('message'), use join(__dirname, 'fixtures/...') for worker paths
   - Zero-length read (Uint8Array(0)) returns 0 without consuming data — readPos stays unchanged; this matches POSIX read(fd, buf, 0) semantics
 ---
+
+## 2026-03-17 - US-074
+- Implemented: Unit tests for UserManager class (packages/kernel/src/user.ts)
+- Files changed:
+  - packages/kernel/test/user.test.ts (new — 13 tests)
+- Tests cover: default values, empty config, euid/egid defaulting to uid/gid, full custom config, euid/egid differing from uid/gid, root uid=0, getpwuid for configured uid, gecos field, custom config passwd entry, unknown uid generic entry, root uid when non-root config, root uid when root config
+- **Learnings for future iterations:**
+  - UserManager is a simple synchronous class with no dependencies — tests are straightforward constructor + method output assertions
+  - getpwuid returns generic `userN` entries for unknown UIDs with uid=gid and default homedir/shell
+  - euid defaults to uid, egid defaults to gid when not explicitly set in config
+---
