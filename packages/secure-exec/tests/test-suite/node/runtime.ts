@@ -1,4 +1,5 @@
 import { afterEach, expect, it } from "vitest";
+import type { StdioEvent } from "../../../src/shared/api-types.js";
 import type { NodeRuntimeOptions } from "../../../src/browser-runtime.js";
 
 export type NodeRuntimeTarget = "node" | "browser";
@@ -41,12 +42,21 @@ export function runNodeSuite(context: NodeSuiteContext): void {
 	});
 
 	it("executes scripts without runtime-managed stdout buffers", async () => {
-		const runtime = await context.createRuntime();
+		const events: StdioEvent[] = [];
+		const runtime = await context.createRuntime({
+			onStdio: (event) => events.push(event),
+		});
 		const result = await runtime.exec(`console.log("hello");`);
 		expect(result.code).toBe(0);
 		expect(result.errorMessage).toBeUndefined();
 		expect(result).not.toHaveProperty("stdout");
 		expect(result).not.toHaveProperty("stderr");
+		// Verify the script actually produced output via the streaming hook
+		const stdoutMessages = events
+			.filter((e) => e.channel === "stdout")
+			.map((e) => e.message);
+		expect(stdoutMessages.length).toBeGreaterThan(0);
+		expect(stdoutMessages.join("")).toContain("hello");
 	});
 
 	it("returns CommonJS exports from run()", async () => {
@@ -72,7 +82,11 @@ export function runNodeSuite(context: NodeSuiteContext): void {
 	});
 
 	it("drops high-volume logs by default to avoid buffering amplification", async () => {
-		const runtime = await context.createRuntime();
+		const events: StdioEvent[] = [];
+		const runtime = await context.createRuntime({
+			onStdio: (event) => events.push(event),
+			resourceBudgets: { maxOutputBytes: 1024 },
+		});
 		const result = await runtime.exec(`
       for (let i = 0; i < 2500; i += 1) {
         console.log("line-" + i);
@@ -82,5 +96,9 @@ export function runNodeSuite(context: NodeSuiteContext): void {
 		expect(result.errorMessage).toBeUndefined();
 		expect(result).not.toHaveProperty("stdout");
 		expect(result).not.toHaveProperty("stderr");
+		// Verify some events arrive (proving output was produced)
+		expect(events.length).toBeGreaterThan(0);
+		// Verify count is bounded below total (proving budget caps output)
+		expect(events.length).toBeLessThan(2500);
 	});
 }

@@ -215,7 +215,11 @@ describe("NodeRuntime", () => {
 	});
 
 	it("drops high-volume logs by default without building stdout/stderr buffers", async () => {
-		proc = createTestNodeRuntime();
+		const capture = createConsoleCapture();
+		proc = createTestNodeRuntime({
+			onStdio: capture.onStdio,
+			resourceBudgets: { maxOutputBytes: 1024 },
+		});
 		const result = await proc.exec(`
       for (let i = 0; i < 5000; i += 1) {
         console.log("line-" + i);
@@ -225,6 +229,10 @@ describe("NodeRuntime", () => {
 		expect(result.code).toBe(0);
 		expect(result).not.toHaveProperty("stdout");
 		expect(result.errorMessage).toBeUndefined();
+		// Verify some events arrive (proving output was produced)
+		expect(capture.events.length).toBeGreaterThan(0);
+		// Verify count is bounded below total (proving budget caps output)
+		expect(capture.events.length).toBeLessThan(5001);
 	});
 
 	it("loads node stdlib polyfills", async () => {
@@ -2542,5 +2550,31 @@ describe("NodeRuntime", () => {
 		expect(result.exports).toEqual([
 			"EACCES", "EACCES", "EACCES", "EACCES", "EACCES", "EACCES", "EACCES",
 		]);
+	});
+
+	it("blocks fetch to real URLs when network permissions are absent", async () => {
+		const capture = createConsoleCapture();
+		proc = createTestNodeRuntime({
+			onStdio: capture.onStdio,
+			driver: createNodeDriver({ useDefaultNetwork: true }),
+		});
+		const result = await proc.run(`
+			let blocked = false;
+			let error = "";
+			try {
+				const r = fetch("https://example.com");
+				if (r && typeof r.then === "function") {
+					await r;
+				}
+			} catch (e) {
+				blocked = true;
+				error = e.message || String(e);
+			}
+			export default { blocked, error };
+		`, "/entry.mjs");
+		expect(result.code).toBe(0);
+		const exports = result.exports as { default: { blocked: boolean; error: string } };
+		expect(exports.default.blocked).toBe(true);
+		expect(exports.default.error).toContain("EACCES");
 	});
 });

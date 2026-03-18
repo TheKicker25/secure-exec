@@ -1105,3 +1105,16 @@ PRD: ralph/kernel-hardening (46 stories)
   - Kernel internals (fdTableManager) accessible via `(kernel as any)` cast in tests — FDTableManager exported from @secure-exec/kernel but not on the Kernel interface
   - bridge-child-process.test.ts has 3 pre-existing failures when WASM binary is present (ls, cat routing, VFS write tests exit code 1)
 ---
+
+## 2026-03-17 - US-067
+- What was implemented: Fixed high-volume log drop tests and stdout buffer test to verify output via onStdio hook; added real network isolation test
+- Files changed:
+  - packages/secure-exec/tests/test-suite/node/runtime.ts — added onStdio hook to "executes scripts without runtime-managed stdout buffers" and "drops high-volume logs" tests, added resourceBudgets.maxOutputBytes to prove output budget caps volume
+  - packages/secure-exec/tests/runtime-driver/node/index.test.ts — added onStdio hook + maxOutputBytes to "drops high-volume logs" test; added "blocks fetch to real URLs when network permissions are absent" test using ESM top-level await
+  - prd.json — marked US-067 as passes: true
+- **Learnings for future iterations:**
+  - exec() runs CJS code (no top-level await); use run() with .mjs filename for ESM top-level await support
+  - ESM modules use `export default` not `module.exports`; run() with "/entry.mjs" returns exports as `{ default: ... }`
+  - createNodeDriver({ useDefaultNetwork: true }) without permissions → fetch EACCES (deny-by-default)
+  - test-suite context (node.test.ts) always creates with allowAllNetwork — can't test network denial there; use runtime-driver tests instead
+---
