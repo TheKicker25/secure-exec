@@ -1195,3 +1195,18 @@ PRD: ralph/kernel-hardening (46 stories)
   - getpwuid returns generic `userN` entries for unknown UIDs with uid=gid and default homedir/shell
   - euid defaults to uid, egid defaults to gid when not explicitly set in config
 ---
+
+## 2026-03-17 - US-076
+- Added waitpid non-existent PID test (ESRCH rejection) to both process-table.test.ts and kernel-integration.test.ts
+- Added concurrent exec() test: 5 parallel exec() calls on same kernel, all complete with unique output (no state leakage)
+- kill() on running DriverProcess and kill() on already-exited process were already covered by existing tests
+- Files changed:
+  - packages/kernel/test/process-table.test.ts (1 new test)
+  - packages/kernel/test/kernel-integration.test.ts (2 new tests)
+  - prd.json — marked US-075 and US-076 as passes: true
+- **Learnings for future iterations:**
+  - ProcessTable.waitpid rejects with plain Error("ESRCH: no such process {pid}") for unknown PIDs — not KernelError
+  - KernelInterface.waitpid delegates directly to ProcessTable.waitpid — test at both levels
+  - kernel.exec() routes through 'sh' via spawnInternal — mock 'sh' command for exec tests
+  - To test unique output per concurrent exec, override MockRuntimeDriver.spawn to emit call-index-tagged stdout
+---

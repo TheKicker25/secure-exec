@@ -1222,6 +1222,65 @@ describe("kernel + MockRuntimeDriver integration", () => {
 	});
 
 	// -----------------------------------------------------------------------
+	// waitpid edge cases
+	// -----------------------------------------------------------------------
+
+	it("waitpid for non-existent PID rejects with ESRCH", async () => {
+		const driver = new MockRuntimeDriver(["x"]);
+		({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+		const ki = driver.kernelInterface!;
+		await expect(ki.waitpid(99999)).rejects.toThrow(/ESRCH/);
+	});
+
+	// -----------------------------------------------------------------------
+	// Concurrent exec
+	// -----------------------------------------------------------------------
+
+	it("3+ concurrent exec() calls complete with correct results and no state leakage", async () => {
+		const configs: Record<string, MockCommandConfig> = {};
+		for (let i = 0; i < 5; i++) {
+			configs[`sh`] = { exitCode: 0 };
+		}
+
+		// Use unique stdout per invocation via emitDuringSpawn
+		let callCount = 0;
+		const driver = new MockRuntimeDriver(["sh"]);
+		const origSpawn = driver.spawn.bind(driver);
+		driver.spawn = (command, args, ctx) => {
+			const idx = callCount++;
+			const proc = origSpawn(command, args, ctx);
+			// Override to emit unique output per call
+			const origOnStdout = proc.onStdout;
+			queueMicrotask(() => {
+				proc.onStdout?.(new TextEncoder().encode(`result-${idx}\n`));
+			});
+			return proc;
+		};
+		({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+		// Launch 5 concurrent exec() calls
+		const promises = Array.from({ length: 5 }, (_, i) =>
+			kernel.exec(`echo ${i}`),
+		);
+
+		const results = await Promise.all(promises);
+
+		// All 5 should complete
+		expect(results).toHaveLength(5);
+
+		// Each gets exit code 0
+		for (const r of results) {
+			expect(r.exitCode).toBe(0);
+		}
+
+		// Each gets unique stdout (no state leakage between executions)
+		const stdouts = results.map((r) => r.stdout);
+		const uniqueOutputs = new Set(stdouts);
+		expect(uniqueOutputs.size).toBe(5);
+	});
+
+	// -----------------------------------------------------------------------
 	// Filesystem convenience wrappers
 	// -----------------------------------------------------------------------
 

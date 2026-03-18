@@ -99,6 +99,11 @@ describe("ProcessTable", () => {
 		expect(() => table.kill(999, 15)).toThrow("ESRCH");
 	});
 
+	it("waitpid rejects with ESRCH for non-existent PID", async () => {
+		const table = new ProcessTable();
+		await expect(table.waitpid(9999)).rejects.toThrow(/ESRCH/);
+	});
+
 	it("listProcesses returns read-only view", () => {
 		const table = new ProcessTable();
 		table.register(table.allocatePid(), "wasmvm", "ls", [], createCtx(), createMockDriverProcess());
