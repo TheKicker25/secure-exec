@@ -98,6 +98,8 @@ PRD: ralph/kernel-hardening (46 stories)
 - Console output (logRef/errorRef) should NOT count against maxBridgeCalls — output has its own maxOutputBytes budget; counting it would exhaust the budget during error reporting
 - Per-execution budget state: `budgetState` object reset via `resetBudgetState()` before each context creation (executeInternal and __unsafeCreateContext)
 - Kernel maxProcesses: check `processTable.runningCount() >= maxProcesses` in spawnInternal before PID allocation; throws EAGAIN
+- Cross-runtime spawn (WasmVM→Node, WasmVM→Python): kernel.spawnInternal registers child PID in parent's driver PID set AND inherits parent's onStdout/onStderr callbacks when stdout is not piped
+- kernel.exec() always runs `sh -c command` through brush-shell — all cross-runtime commands go through WasmVM proc_spawn
 - ERR_RESOURCE_BUDGET_EXCEEDED is the error code for all bridge resource budget violations
 - maxBuffer enforcement: host-side for sync paths (spawnSyncRef tracks bytes, kills, returns maxBufferExceeded flag), bridge-side for async paths (exec/execFile track bytes, kill child); default 1MB for exec/execSync/execFile/execFileSync, unlimited for spawnSync
 - Adding a new bridge fs operation requires 10+ file changes: types.ts, all 4 VFS impls, permissions.ts, bridge-contract.ts, global-exposure.ts, setup-fs-facade.ts, runtime-globals.d.ts, execution-driver.ts, bridge/fs.ts, and runtime-node adapters
