@@ -3,6 +3,7 @@ Started: 2026-03-17
 PRD: ralph/kernel-hardening (46 stories)
 
 ## Codebase Patterns
+- @secure-exec/node package at packages/secure-exec-node/ owns V8-specific execution engine (execution.ts, isolate.ts, bridge-loader.ts, polyfills.ts) — deps: @secure-exec/core, isolated-vm, esbuild, node-stdlib-browser
 - @secure-exec/core package at packages/secure-exec-core/ owns shared types, utilities, bridge guest code, generated sources, and build scripts — build it first (turbo ^build handles this)
 - When adding exports to shared modules in core, update BOTH core/src/index.ts AND the corresponding re-export file in secure-exec/src/shared/
 - Bridge source is in core/src/bridge/, build scripts in core/scripts/, isolate-runtime source in core/isolate-runtime/
@@ -916,4 +917,32 @@ PRD: ralph/kernel-hardening (46 stories)
   - `./internal/` prefix is a convention signal, not enforced — runtime packages can import but external consumers should not
   - bridge-loader.ts is in secure-exec (not core) — future stories (US-056) will move it to @secure-exec/node
   - Pre-existing WasmVM/kernel test failures are unrelated to package config changes — they require the WASM binary built locally
+---
+
+## 2026-03-17 - US-056
+- What was implemented: Created @secure-exec/node package and moved V8 execution engine files
+- Files changed:
+  - packages/secure-exec-node/package.json — new package with deps: @secure-exec/core, isolated-vm, esbuild, node-stdlib-browser
+  - packages/secure-exec-node/tsconfig.json — standard ES2022/NodeNext config
+  - packages/secure-exec-node/src/index.ts — barrel exporting all moved modules
+  - packages/secure-exec-node/src/execution.ts — V8 execution loop (moved from secure-exec, imports updated to @secure-exec/core)
+  - packages/secure-exec-node/src/isolate.ts — V8 isolate utilities (moved, imports updated)
+  - packages/secure-exec-node/src/bridge-loader.ts — esbuild bridge compilation (moved, imports unchanged since already used @secure-exec/core)
+  - packages/secure-exec-node/src/polyfills.ts — esbuild stdlib bundling (moved, no import changes needed)
+  - packages/secure-exec/src/execution.ts — replaced with re-export stub from @secure-exec/node
+  - packages/secure-exec/src/isolate.ts — replaced with re-export stub from @secure-exec/node
+  - packages/secure-exec/src/bridge-loader.ts — replaced with re-export stub from @secure-exec/node
+  - packages/secure-exec/src/polyfills.ts — replaced with re-export stub from @secure-exec/node
+  - packages/secure-exec/src/python/driver.ts — updated to import TIMEOUT_* constants from @secure-exec/core directly
+  - packages/secure-exec/tests/isolate-runtime-injection-policy.test.ts — updated source-grep test to read bridge-loader.ts from canonical location (@secure-exec/node)
+  - packages/secure-exec/package.json — added @secure-exec/node workspace dependency
+  - pnpm-lock.yaml — updated for new package
+  - prd.json — marked US-056 as passes: true
+- **Learnings for future iterations:**
+  - turbo.json ^build handles workspace dependency ordering automatically — no turbo.json changes needed when adding new workspace packages
+  - Re-export stubs in secure-exec preserve backward compatibility for internal consumers (node/*, python/*) while the canonical code moves to @secure-exec/node
+  - Source-grep policy tests (isolate-runtime-injection-policy.test.ts) must be updated when source files move — they read source by path
+  - python/driver.ts only needed TIMEOUT_ERROR_MESSAGE and TIMEOUT_EXIT_CODE from isolate.ts — these are already in @secure-exec/core, so direct import avoids dependency on @secure-exec/node
+  - @secure-exec/node uses internal/* subpath exports (./internal/execution, ./internal/isolate, etc.) matching the pattern established by @secure-exec/core
+  - pnpm-workspace.yaml `packages/*` glob auto-discovers packages/secure-exec-node/ — no workspace config changes needed
 ---
