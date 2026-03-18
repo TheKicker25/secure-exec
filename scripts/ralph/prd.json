@@ -2124,7 +2124,7 @@
         "Tests pass"
       ],
       "priority": 126,
-      "passes": false,
+      "passes": true,
       "notes": "Audit M2 — MEDIUM. apply-timing-mitigation-freeze.ts:13-17. Date.now is set with writable: true, configurable: true. Sandbox code can restore it trivially."
     },
     {
