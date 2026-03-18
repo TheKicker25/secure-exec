@@ -479,9 +479,13 @@ export async function setupRequire(
 				}>("child_process.spawn options", optionsJson, jsonPayloadLimit);
 				const sessionId = nextSessionId++;
 
+				// Use init-time filtered env when no explicit env — sandbox
+				// process.env mutations must not propagate to children
+				const childEnv = stripDangerousEnv(options.env ?? deps.processConfig.env);
+
 				const proc = executor.spawn(command, args, {
 					cwd: options.cwd,
-					env: stripDangerousEnv(options.env),
+					env: childEnv,
 					onStdout: (data) => {
 						getDispatchRef().applySync(
 							undefined,
@@ -559,9 +563,13 @@ export async function setupRequire(
 				let stderrBytes = 0;
 				let maxBufferExceeded = false;
 
+				// Use init-time filtered env when no explicit env — sandbox
+				// process.env mutations must not propagate to children
+				const childEnv = stripDangerousEnv(options.env ?? deps.processConfig.env);
+
 				const proc = executor.spawn(command, args, {
 					cwd: options.cwd,
-					env: stripDangerousEnv(options.env),
+					env: childEnv,
 					onStdout: (data) => {
 						if (maxBufferExceeded) return;
 						stdoutBytes += data.length;

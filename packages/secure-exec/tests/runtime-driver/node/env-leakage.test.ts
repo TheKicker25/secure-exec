@@ -180,4 +180,52 @@ describe("runtime driver specific: node env leakage", () => {
 			CUSTOM: "value",
 		});
 	});
+
+	// ---------------------------------------------------------------
+	// Env isolation — sandbox mutations must not reach children
+	// ---------------------------------------------------------------
+
+	it("sandbox process.env.LD_PRELOAD does not reach child spawned with default env", async () => {
+		const { executor, calls } = createCapturingExecutor();
+		proc = createTestNodeRuntime({
+			permissions: { ...allowAllChildProcess, ...allowAllEnv },
+			commandExecutor: executor,
+			processConfig: { env: { SAFE_INIT: "yes" } },
+		});
+		await proc.run(`
+			const cp = require('child_process');
+			process.env.LD_PRELOAD = '/evil/lib.so';
+			cp.spawnSync('echo', ['hi']);
+		`);
+		expect(calls.length).toBe(1);
+		// Child gets init-time env, not the mutated sandbox env
+		expect(calls[0].env).toBeDefined();
+		expect(calls[0].env!.LD_PRELOAD).toBeUndefined();
+		expect(calls[0].env!.SAFE_INIT).toBe("yes");
+	});
+
+	it("sandbox process.env.FOO mutation is visible locally but not in child default env", async () => {
+		const { executor, calls } = createCapturingExecutor();
+		const capture = createConsoleCapture();
+		proc = createTestNodeRuntime({
+			permissions: { ...allowAllChildProcess, ...allowAllEnv },
+			commandExecutor: executor,
+			processConfig: { env: { INIT_VAR: "original" } },
+			onStdio: capture.onStdio,
+		});
+		await proc.run(`
+			const cp = require('child_process');
+			process.env.FOO = 'bar';
+			console.log(JSON.stringify({ foo: process.env.FOO }));
+			cp.spawnSync('echo', ['hi']);
+		`);
+		// Sandbox-local mutation works
+		const parsed = JSON.parse(capture.stdout().trim());
+		expect(parsed.foo).toBe("bar");
+		// Child gets init-time env without the mutation
+		expect(calls.length).toBe(1);
+		expect(calls[0].env).toBeDefined();
+		expect(calls[0].env!.FOO).toBeUndefined();
+		expect(calls[0].env!.INIT_VAR).toBe("original");
+	});
 });
