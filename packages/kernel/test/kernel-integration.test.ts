@@ -8,7 +8,7 @@ import {
 import type { Kernel, Permissions } from "../src/types.js";
 import { FILETYPE_PIPE, FILETYPE_CHARACTER_DEVICE } from "../src/types.js";
 import { filterEnv, wrapFileSystem } from "../src/permissions.js";
-import { MAX_CANON } from "../src/pty.js";
+import { MAX_CANON, MAX_PTY_BUFFER_BYTES } from "../src/pty.js";
 
 describe("kernel + MockRuntimeDriver integration", () => {
 	let kernel: Kernel;
@@ -3137,6 +3137,58 @@ describe("kernel + MockRuntimeDriver integration", () => {
 			// Read back via slave FD — same PTY, should see the change
 			const termios = ki.tcgetattr(proc.pid, slaveFd);
 			expect(termios.icanon).toBe(false);
+
+			proc.kill();
+		});
+
+		it("echo buffer exhaustion — fdWrite throws EAGAIN when output buffer is full", async () => {
+			const driver = new MockRuntimeDriver(["proc"], {
+				proc: { neverExit: true },
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const ki = driver.kernelInterface!;
+			const proc = kernel.spawn("proc", []);
+			const { masterFd, slaveFd } = ki.openpty(proc.pid);
+
+			// Default termios: canonical + echo on. Fill output buffer via slave write.
+			const chunk = new Uint8Array(MAX_PTY_BUFFER_BYTES);
+			ki.fdWrite(proc.pid, slaveFd, chunk);
+
+			// Master write with echo enabled — echo can't fit in full output buffer → EAGAIN
+			expect(() =>
+				ki.fdWrite(proc.pid, masterFd, new Uint8Array([0x41])), // 'A'
+			).toThrow(expect.objectContaining({ code: "EAGAIN" }));
+
+			proc.kill();
+		});
+
+		it("echo buffer exhaustion recovery — drain buffer, verify echo resumes", async () => {
+			const driver = new MockRuntimeDriver(["proc"], {
+				proc: { neverExit: true },
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const ki = driver.kernelInterface!;
+			const proc = kernel.spawn("proc", []);
+			const { masterFd, slaveFd } = ki.openpty(proc.pid);
+
+			// Fill output buffer via slave write
+			const chunk = new Uint8Array(MAX_PTY_BUFFER_BYTES);
+			ki.fdWrite(proc.pid, slaveFd, chunk);
+
+			// Confirm echo is blocked
+			expect(() =>
+				ki.fdWrite(proc.pid, masterFd, new Uint8Array([0x41])),
+			).toThrow(expect.objectContaining({ code: "EAGAIN" }));
+
+			// Drain output buffer via master read
+			await ki.fdRead(proc.pid, masterFd, MAX_PTY_BUFFER_BYTES);
+
+			// Echo should now work — write input, read echo back from master
+			ki.fdWrite(proc.pid, masterFd, new Uint8Array([0x42])); // 'B'
+			const echo = await ki.fdRead(proc.pid, masterFd, 1024);
+			expect(echo[0]).toBe(0x42); // 'B' echoed back
 
 			proc.kill();
 		});
