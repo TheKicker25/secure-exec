@@ -92,8 +92,8 @@ const faqs: { question: string; answer: React.ReactNode }[] = [
     answer: (
       <ul className="list-disc list-inside space-y-1.5 text-zinc-400">
         <li>
-          <a href="/docs/use-cases/ai-agent-code-eval" className="text-red-400 hover:text-red-300">
-            AI agent code evaluation and tool use
+          <a href="/docs/use-cases/ai-agent-code-exec" className="text-red-400 hover:text-red-300">
+            AI agent code execution and tool use
           </a>
         </li>
         <li>

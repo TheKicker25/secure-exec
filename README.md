@@ -208,7 +208,7 @@ Yes. For orchestrating stateful, long-running tasks, we recommend pairing Secure
 <details>
 <summary>What are common use cases?</summary>
 
-- [AI agent code evaluation and tool use](https://secureexec.dev/docs/use-cases/ai-agent-code-eval)
+- [AI agent code execution and tool use](https://secureexec.dev/docs/use-cases/ai-agent-code-exec)
 - [User-facing dev servers (Express, Hono, Next.js)](https://secureexec.dev/docs/use-cases/dev-servers)
 - MCP tool-code execution
 - [Sandboxed plugin / extension systems](https://secureexec.dev/docs/use-cases/plugin-systems)

@@ -1,5 +1,5 @@
 {
-  "name": "@libsandbox/example-ai-agent-type-check",
+  "name": "@secure-exec/example-ai-agent-type-check",
   "private": true,
   "type": "module",
   "scripts": {

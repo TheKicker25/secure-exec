@@ -86,15 +86,30 @@ importers:
         specifier: ^5.7.2
         version: 5.9.3
 
-  examples/codemod:
+  examples/code-mode:
     dependencies:
+      '@ai-sdk/anthropic':
+        specifier: ^3.0.58
+        version: 3.0.58(zod@3.25.76)
+      ai:
+        specifier: ^6.0.116
+        version: 6.0.116(zod@3.25.76)
       secure-exec:
         specifier: workspace:*
         version: link:../../packages/secure-exec
+      zod:
+        specifier: ^3.24.0
+        version: 3.25.76
     devDependencies:
+      '@types/node':
+        specifier: ^22.10.2
+        version: 22.19.3
       tsx:
         specifier: ^4.19.2
         version: 4.21.0
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
 
   examples/features:
     dependencies:
@@ -184,6 +199,9 @@ importers:
 
   examples/quickstart:
     dependencies:
+      '@hono/node-server':
+        specifier: ^1.13.8
+        version: 1.19.9(hono@4.12.2)
       '@secure-exec/typescript':
         specifier: workspace:*
         version: link:../../packages/secure-exec-typescript

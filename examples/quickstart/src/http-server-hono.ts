@@ -1,42 +1,50 @@
 import {
   NodeRuntime,
-  allowAllNetwork,
+  NodeFileSystem,
+  allowAll,
   createNodeDriver,
   createNodeRuntimeDriverFactory,
 } from "secure-exec";
 
-const logs: string[] = [];
+const port = 3000;
 const runtime = new NodeRuntime({
   systemDriver: createNodeDriver({
+    filesystem: new NodeFileSystem(),
     useDefaultNetwork: true,
-    permissions: { ...allowAllNetwork },
+    permissions: allowAll,
   }),
   runtimeDriverFactory: createNodeRuntimeDriverFactory(),
 });
 
-await runtime.exec(`
-  const { Hono } = require("hono");
-  const { createServer } = require("node:http");
+// Start a Hono server inside the sandbox
+const execPromise = runtime.exec(`
+  (async () => {
+    const { Hono } = require("hono");
+    const { serve } = require("@hono/node-server");
 
-  const app = new Hono();
-  app.get("/", (c) => c.text("hello from hono"));
+    const app = new Hono();
+    app.get("/", (c) => c.text("hello from hono"));
 
-  const server = createServer(async (req, res) => {
-    const response = await app.fetch(
-      new Request("http://127.0.0.1" + req.url, { method: req.method })
-    );
+    serve({ fetch: app.fetch, port: ${port}, hostname: "127.0.0.1" });
+    await new Promise(() => {});
+  })();
+`);
 
-    res.writeHead(response.status, Object.fromEntries(response.headers));
-    res.end(Buffer.from(await response.arrayBuffer()));
-  });
+// Wait for the server to be ready, then fetch from the host
+const url = "http://127.0.0.1:" + port + "/";
+for (let i = 0; i < 50; i++) {
+  try {
+    const r = await runtime.network.fetch(url, { method: "GET" });
+    if (r.status === 200) break;
+  } catch {
+    await new Promise((r) => setTimeout(r, 100));
+  }
+}
 
-  server.listen(80, async () => {
-    const response = await fetch("http://127.0.0.1:80");
-    console.log(await response.text());
-    server.close();
-  });
-`, {
-  onStdio: (event) => logs.push(`[${event.channel}] ${event.message}`),
-});
+const response = await runtime.network.fetch(url, { method: "GET" });
 
-console.log(logs); // ["[stdout] hello from hono"]
+console.log(response.status); // 200
+console.log(response.body);   // "hello from hono"
+
+await runtime.terminate();
+await execPromise.catch(() => {});

@@ -5,6 +5,6 @@ These files mirror the examples in [docs/quickstart.mdx](../../docs/quickstart.m
 Verify them with:
 
 ```bash
-pnpm --filter @libsandbox/example-quickstart check-types
-pnpm --filter @libsandbox/example-quickstart verify-docs
+pnpm --filter @secure-exec/example-quickstart check-types
+pnpm --filter @secure-exec/example-quickstart verify-docs
 ```

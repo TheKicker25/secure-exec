@@ -1,5 +1,5 @@
 {
-  "name": "@libsandbox/example-features",
+  "name": "@secure-exec/example-features",
   "private": true,
   "type": "module",
   "scripts": {

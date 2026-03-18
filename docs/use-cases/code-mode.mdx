@@ -1,0 +1,89 @@
+---
+title: "Code Mode (MCP)"
+description: "Give AI agents a single code-execution tool instead of individual MCP tools. The LLM writes code that chains tool calls, executed safely in Secure Exec."
+icon: "code"
+---
+
+<Card title="Example on GitHub" icon="github" href="https://github.com/anthropics/secure-exec/tree/main/examples/code-mode">
+  Full working example with SecureExecExecutor and tool dispatch.
+</Card>
+
+Instead of calling tools one at a time (requiring round-trips through the LLM), Code Mode gives the agent a single "execute code" tool. The LLM writes JavaScript that chains multiple tool calls in one shot, and Secure Exec runs it in an isolated V8 sandbox.
+
+This pattern, introduced by [Cloudflare's Code Mode](https://blog.cloudflare.com/code-mode/), works because LLMs are better at writing code than calling tools. They have millions of lines of real-world code in their training data but limited exposure to synthetic tool-calling formats.
+
+## How it works
+
+1. Define your tools (AI SDK `tool()`, MCP servers, or both)
+2. Create a `SecureExecExecutor` that runs LLM-generated code in a V8 isolate and proxies `codemode.*` calls back to your tool implementations
+3. Give the LLM one tool ("execute code") with typed API definitions for your tools
+4. The LLM writes JavaScript that calls your tools via `codemode.*` and chains the results
+
+```ts
+const tools = {
+  getWeather: tool({
+    description: "Get current weather for a city.",
+    inputSchema: z.object({ city: z.string() }),
+    execute: async ({ city }) => fetchWeather(city),
+  }),
+  calculate: tool({
+    description: "Evaluate a math expression.",
+    inputSchema: z.object({ expression: z.string() }),
+    execute: async ({ expression }) => eval(expression),
+  }),
+};
+
+const executor = new SecureExecExecutor({ memoryLimit: 64 });
+
+// Give the LLM one tool instead of many
+tools: {
+  codemode: tool({
+    description: codeToolDescription, // includes typed API definitions
+    inputSchema: z.object({ code: z.string() }),
+    execute: async ({ code }) => executor.execute(code, fns),
+  }),
+}
+```
+
+The agent then generates code like this:
+
+```js
+async () => {
+  const [sf, tokyo] = await Promise.all([
+    codemode.getWeather({ city: "San Francisco" }),
+    codemode.getWeather({ city: "Tokyo" })
+  ]);
+
+  const diffF = Math.abs(sf.temp_f - tokyo.temp_f);
+  const diffC = await codemode.calculate({
+    expression: `${diffF} * 5 / 9`
+  });
+
+  return {
+    san_francisco: sf,
+    tokyo: tokyo,
+    difference: { fahrenheit: diffF, celsius: diffC.result },
+    warmer: sf.temp_f > tokyo.temp_f ? "San Francisco" : "Tokyo"
+  };
+}
+```
+
+Three tool calls, one sandbox execution, zero extra LLM round-trips.
+
+See the [full working example](https://github.com/anthropics/secure-exec/tree/main/examples/code-mode) for the complete implementation including the `SecureExecExecutor`.
+
+## Why Code Mode
+
+- **Fewer round-trips**: Chain multiple tool calls, conditionals, and data transformations in a single execution
+- **Lower token usage**: Intermediate results stay in the sandbox instead of passing back through the LLM context
+- **Better tool handling**: LLMs manage more tools and greater complexity when presented as TypeScript APIs vs. raw tool definitions
+
+## Status
+
+Code Mode support in Secure Exec is early. Today you need to copy the [`SecureExecExecutor` adapter](https://github.com/anthropics/secure-exec/tree/main/examples/code-mode) from the example into your project. We're planning official first-party support.
+
+## Further reading
+
+- [Cloudflare Code Mode blog post](https://blog.cloudflare.com/code-mode/)
+- [`@cloudflare/codemode` package](https://github.com/cloudflare/agents/tree/main/packages/codemode)
+- [AI Agent Code Exec](/use-cases/ai-agent-code-exec) for simpler single-tool execution patterns

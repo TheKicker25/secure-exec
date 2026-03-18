@@ -1,5 +1,5 @@
 {
-  "name": "@libsandbox/example-plugin-system",
+  "name": "@secure-exec/example-plugin-system",
   "private": true,
   "type": "module",
   "scripts": {

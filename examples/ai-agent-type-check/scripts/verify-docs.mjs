@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "../../..");
-const docsPath = path.join(repoRoot, "docs/use-cases/ai-agent-code-eval.mdx");
+const docsPath = path.join(repoRoot, "docs/use-cases/ai-agent-code-exec.mdx");
 
 const expectedFiles = new Map([
   ["JavaScript Execution", path.join(repoRoot, "examples/ai-sdk/src/index.ts")],

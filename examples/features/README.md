@@ -5,6 +5,6 @@ These files mirror the examples in `docs/features/*.mdx`.
 Verify them with:
 
 ```bash
-pnpm --filter @libsandbox/example-features check-types
-pnpm --filter @libsandbox/example-features test
+pnpm --filter @secure-exec/example-features check-types
+pnpm --filter @secure-exec/example-features test
 ```

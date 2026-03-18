@@ -39,7 +39,8 @@
       {
         "group": "Use Cases",
         "pages": [
-          "use-cases/ai-agent-code-eval",
+          "use-cases/ai-agent-code-exec",
+          "use-cases/code-mode",
           "use-cases/dev-servers",
           "use-cases/plugin-systems"
         ]
