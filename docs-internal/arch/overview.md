@@ -1,117 +1,46 @@
 # Architecture Overview
 
 ```
-                         Consumer API
-                     createKernel() + mount()
-                              │
-                    ┌─────────┴─────────┐
-                    │      Kernel        │  packages/kernel/
-                    │  VFS, FD Table,    │
-                    │  Process Table,    │
-                    │  Device Layer,     │
-                    │  Pipe Manager,     │
-                    │  Command Registry, │
-                    │  Permissions       │
-                    └─────────┬──────────┘
-                              │
-               ┌──────────────┼──────────────┐
-               │              │              │
-          WasmVM          Node           Python
-          Runtime         Runtime        Runtime
-   packages/runtime/  packages/         packages/
-       wasmvm/         secure-exec-node/  secure-exec-python/
+  NodeRuntime / PythonRuntime
+  packages/secure-exec-core/
+         │
+    ┌────┴─────┬──────────┐
+    │          │          │
+  Node      Browser    Python
+  packages/ packages/  packages/
+  secure-   secure-    secure-
+  exec-     exec-      exec-
+  node/     browser/   python/
 
-   @secure-exec/core        packages/secure-exec-core/
-     Shared types, utilities, bridge, NodeRuntime/PythonRuntime classes,
-     isolate-runtime source, build scripts
+Package index:
 
-   @secure-exec/node        packages/secure-exec-node/
-     V8 isolate execution driver, bridge-loader, module-access overlay,
-     createNodeDriver, createNodeRuntimeDriverFactory
+  @secure-exec/core        packages/secure-exec-core/
+    Shared types, utilities, bridge, NodeRuntime/PythonRuntime classes,
+    isolate-runtime source, build scripts
 
-   @secure-exec/browser     packages/secure-exec-browser/
-     Web Worker runtime driver, createBrowserDriver,
-     createBrowserRuntimeDriverFactory
+  @secure-exec/node        packages/secure-exec-node/
+    V8 isolate execution driver, bridge-loader, module-access overlay,
+    createNodeDriver, createNodeRuntimeDriverFactory
 
-   @secure-exec/python      packages/secure-exec-python/
-     Pyodide runtime driver, createPyodideRuntimeDriverFactory
+  @secure-exec/browser     packages/secure-exec-browser/
+    Web Worker execution driver, createBrowserDriver,
+    createBrowserRuntimeDriverFactory
 
-   secure-exec               packages/secure-exec/
-     Barrel re-export layer — re-exports all of the above
+  @secure-exec/python      packages/secure-exec-python/
+    Pyodide execution driver, createPyodideRuntimeDriverFactory
+
+  @secure-exec/typescript  packages/secure-exec-typescript/
+    Optional TypeScript compiler tools (type-checking, compilation)
+
+  secure-exec              packages/secure-exec/
+    Barrel re-export layer (re-exports core, node, browser, python)
 ```
 
-## Kernel
-
-`packages/kernel/src/`
-
-The shared OS layer. Platform-agnostic — no Node.js or browser APIs. All runtimes make "syscalls" to the kernel for filesystem, process, pipe, and FD operations.
-
-- `createKernel(options)` — creates a kernel with a VFS backend and optional permissions
-- `kernel.mount(driver)` — mounts a runtime driver, registers its commands
-- `kernel.exec(command)` — executes through the shell (requires WasmVM runtime)
-- `kernel.spawn(command, args)` — spawns a process directly via command registry
-
-### Kernel Components
-
-- **VFS** (`vfs.ts`) — POSIX-complete `VirtualFileSystem` interface with symlinks, links, chmod/chown/utimes/truncate
-- **FD Table** (`fd-table.ts`) — Per-PID file descriptors with shared FileDescriptions (cursor sharing via dup/dup2)
-- **Process Table** (`process-table.ts`) — PID allocation, parent-child, waitpid, signal routing across runtimes
-- **Device Layer** (`device-layer.ts`) — Intercepts /dev/null, /dev/zero, /dev/stdin, /dev/stdout, /dev/stderr, /dev/urandom
-- **Pipe Manager** (`pipe-manager.ts`) — Cross-runtime pipe creation and buffered data flow
-- **Command Registry** (`command-registry.ts`) — Command name → driver routing, /bin population for shell PATH lookup
-- **Permissions** (`permissions.ts`) — Deny-by-default VFS permission wrapping
-- **User** (`user.ts`) — User/group identity (uid, gid, getpwuid)
-
-### RuntimeDriver Interface
-
-```typescript
-interface RuntimeDriver {
-  name: string;
-  commands: string[];
-  init(kernel: KernelInterface): Promise<void>;
-  spawn(command: string, args: string[], ctx: ProcessContext): DriverProcess;
-  dispose(): Promise<void>;
-}
-```
-
-## OS Layer
-
-Platform-specific implementations of abstractions the kernel needs.
-
-### os/node
-
-`packages/os/node/src/`
-
-- `NodeFileSystem` — implements `VirtualFileSystem` by delegating to `node:fs/promises`
-- `NodeWorkerAdapter` — wraps `node:worker_threads`
-
-### os/browser
-
-`packages/os/browser/src/`
-
-- `InMemoryFileSystem` — POSIX-complete in-memory VFS with symlinks, hard links, permissions
-- `BrowserWorkerAdapter` — wraps Web Worker API
-
-## WasmVM Runtime
-
-`packages/runtime/wasmvm/src/` (TypeScript host) + `wasmvm/` (Rust workspace)
-
-BusyBox-style WASM binary containing 90+ Unix commands (brush-shell, coreutils, grep, sed, awk, find, jq).
-
-- `WasmOS` class — current standalone API (pre-kernel integration)
-- WASI polyfill (46 syscalls) → translates WASI calls to VFS/FD/process operations
-- Worker-based process model with SharedArrayBuffer + Atomics synchronization
-- Ring buffers for WASM-to-WASM pipeline optimization
-
-## Existing Runtime Architecture
-
-The runtime is split across `@secure-exec/core` (shared types and runtime classes), `@secure-exec/node`, `@secure-exec/browser`, and `@secure-exec/python`. The `secure-exec` barrel package re-exports everything. The kernel is additive.
-
-### NodeRuntime / PythonRuntime
+## NodeRuntime / PythonRuntime
 
 `packages/secure-exec-core/src/runtime.ts`, `packages/secure-exec-core/src/python-runtime.ts`
 
-Public APIs. Thin facades that delegate orchestration to runtime drivers.
+Public APIs. Thin facades that delegate orchestration to execution drivers.
 
 - `NodeRuntime.run(code)` — execute JS module, get exports back
 - `PythonRuntime.run(code)` — execute Python and return structured value/global wrapper
@@ -119,36 +48,28 @@ Public APIs. Thin facades that delegate orchestration to runtime drivers.
 - `dispose()` / `terminate()`
 - Requires both:
   - `systemDriver` for runtime capabilities/config
-  - runtime-driver factory for runtime-driver construction
+  - runtime-driver factory for execution-driver construction
 
-### TypeScript Tools
-
-`packages/secure-exec-typescript/src/index.ts`
-
-Optional companion package for sandboxed TypeScript compiler work (`@secure-exec/typescript`).
-
-- `createTypeScriptTools(...)` — build project/source compile and typecheck helpers
-- Uses a dedicated `NodeRuntime` compiler sandbox per request
-- Keeps TypeScript compiler execution out of the core runtime path
-
-### SystemDriver
+## SystemDriver
 
 `packages/secure-exec-core/src/types.ts`
 
-Config object that bundles what the sandbox can access. Deny-by-default.
+Config object that bundles what the isolate can access. Deny-by-default.
 
 - `filesystem` — VFS adapter
 - `network` — fetch, DNS, HTTP
 - `commandExecutor` — child processes
 - `permissions` — per-adapter allow/deny checks
 
-### NodeRuntimeDriverFactory / PythonRuntimeDriverFactory
+## NodeRuntimeDriverFactory / PythonRuntimeDriverFactory
 
-Factory abstraction for constructing runtime drivers from normalized runtime options.
+`packages/secure-exec-core/src/runtime-driver.ts`
 
-- `createRuntimeDriver(options)` — returns a `RuntimeDriver`
+Factory abstraction for constructing execution drivers from normalized runtime options.
 
-#### createNodeDriver()
+- `createRuntimeDriver(options)` — returns an execution driver
+
+### createNodeDriver()
 
 `packages/secure-exec-node/src/driver.ts`
 
@@ -157,16 +78,16 @@ Factory that builds a `SystemDriver` with Node-native adapters.
 - Wraps filesystem in `ModuleAccessFileSystem` (read-only `node_modules` overlay)
 - Optionally wires up network and command executor
 
-#### createNodeRuntimeDriverFactory()
+### createNodeRuntimeDriverFactory()
 
 `packages/secure-exec-node/src/driver.ts`
 
-Factory that builds a Node-backed `RuntimeDriverFactory`.
+Factory that builds a Node-backed execution driver factory.
 
 - Constructs `NodeExecutionDriver` instances
 - Owns optional Node-specific isolate creation hook
 
-#### createBrowserDriver()
+### createBrowserDriver()
 
 `packages/secure-exec-browser/src/driver.ts`
 
@@ -176,26 +97,26 @@ Factory that builds a browser `SystemDriver` with browser-native adapters.
 - Uses fetch-backed network adapter with deterministic `ENOSYS` for unsupported DNS/server paths
 - Applies permission wrappers before returning the driver
 
-#### createBrowserRuntimeDriverFactory()
+### createBrowserRuntimeDriverFactory()
 
 `packages/secure-exec-browser/src/runtime-driver.ts`
 
-Factory that builds a browser-backed `RuntimeDriverFactory`.
+Factory that builds a browser-backed execution driver factory.
 
 - Validates and rejects Node-only runtime options
 - Constructs `BrowserRuntimeDriver` instances
-- Owns worker URL/runtime-driver creation options
+- Owns worker URL/execution-driver creation options
 
-#### createPyodideRuntimeDriverFactory()
+### createPyodideRuntimeDriverFactory()
 
 `packages/secure-exec-python/src/driver.ts`
 
-Factory that builds a Python-backed `PythonRuntimeDriverFactory`.
+Factory that builds a Python-backed execution driver factory.
 
 - Constructs `PyodideRuntimeDriver` instances
-- Owns Pyodide worker bootstrap and runtime-driver creation options
+- Owns Pyodide worker bootstrap and execution-driver creation options
 
-### NodeExecutionDriver
+## NodeExecutionDriver
 
 `packages/secure-exec-node/src/execution-driver.ts`
 
@@ -206,7 +127,7 @@ The engine. Owns the `isolated-vm` isolate and bridges host capabilities in.
 - Caches compiled modules and resolved formats per isolate
 - Enforces payload size limits on bridge transfers
 
-### BrowserRuntimeDriver
+## BrowserRuntimeDriver
 
 `packages/secure-exec-browser/src/runtime-driver.ts`
 
@@ -221,14 +142,14 @@ Browser execution driver that owns worker lifecycle and message marshalling.
 
 `packages/secure-exec-browser/src/worker.ts`
 
-Worker-side runtime implementation used by the browser runtime driver.
+Worker-side runtime implementation used by the browser execution driver.
 
 - Initializes browser bridge globals and runtime config from worker init payload
 - Executes transformed CJS/ESM user code and returns runtime-contract results
 - Uses permission-aware filesystem/network adapters in the worker context
 - Preserves deterministic unsupported-operation contracts (for example DNS gaps)
 
-### PyodideRuntimeDriver
+## PyodideRuntimeDriver
 
 `packages/secure-exec-python/src/driver.ts`
 
@@ -240,7 +161,17 @@ Python execution driver that owns a Node worker running Pyodide.
 - Uses worker-to-host RPC for permission-wrapped filesystem/network access through `SystemDriver`
 - Restarts worker state on execution timeout to preserve deterministic recovery behavior
 
-### ModuleAccessFileSystem
+## TypeScript Tools
+
+`packages/secure-exec-typescript/src/index.ts`
+
+Optional companion package for isolated TypeScript compiler work (`@secure-exec/typescript`).
+
+- `createTypeScriptTools(...)` — build project/source compile and typecheck helpers
+- Uses a dedicated `NodeRuntime` isolate per request
+- Keeps TypeScript compiler execution out of the core runtime path
+
+## ModuleAccessFileSystem
 
 `packages/secure-exec-node/src/module-access.ts`
 
@@ -250,7 +181,7 @@ Filesystem overlay that makes host `node_modules` available read-only at `/root/
 - Prevents symlink escapes (resolves pnpm virtual-store paths)
 - Non-module paths fall through to base VFS
 
-### Permissions
+## Permissions
 
 `packages/secure-exec-core/src/shared/permissions.ts`
 
@@ -258,3 +189,7 @@ Wraps each adapter with allow/deny checks before calls reach the host.
 
 - `wrapFileSystem()`, `wrapNetworkAdapter()`, `wrapCommandExecutor()`
 - Missing adapters get deny-all stubs
+
+---
+
+> **Kernel packages** (`packages/kernel/`, `packages/runtime/`, `packages/os/`) are experimental and not part of the public API. See `wasmvm/CLAUDE.md` for kernel and WasmVM architecture details.
