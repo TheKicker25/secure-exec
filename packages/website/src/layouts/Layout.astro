@@ -6,7 +6,7 @@ interface Props {
 
 const { title, description = "Secure Node.js execution without a sandbox. V8 isolate-based code execution with full Node.js and npm compatibility." } =
   Astro.props;
-const canonicalURL = new URL(Astro.url.pathname, "https://secure-exec.dev");
+const canonicalURL = new URL(Astro.url.pathname, "https://secureexec.dev");
 
 const structuredData = {
   "@context": "https://schema.org",
@@ -15,7 +15,7 @@ const structuredData = {
   applicationCategory: "DeveloperApplication",
   operatingSystem: "Linux, macOS, Windows",
   description: description,
-  url: "https://secure-exec.dev",
+  url: "https://secureexec.dev",
   author: {
     "@type": "Organization",
     name: "Rivet",

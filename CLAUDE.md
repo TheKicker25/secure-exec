@@ -1,13 +1,20 @@
 ## Brand
 
 - accent color: #CC0000 (red), light variant: #FF3333
+- website: https://secureexec.dev
+- docs: https://secureexec.dev/docs
+- GitHub: https://github.com/rivet-dev/secure-exec
+
+## NPM Packages
+
+- every publishable package must include a `README.md` with the standard format: title, tagline, and links to website, docs, and GitHub
+- if `package.json` has a `"files"` array, `"README.md"` must be listed in it
 
 ## Tooling
 
 - use pnpm, vitest, and tsc for type checks
 - use turbo for builds
 - keep timeouts under 1 minute and avoid running full test suites unless necessary
-- use one-line Conventional Commit messages; never add any co-authors (including agents)
 - use one-line Conventional Commit messages; never add any co-authors (including agents)
 - never mark work complete until typechecks pass and all tests pass in the current turn; if they fail, report the failing command and first concrete error
 - always add or update tests that cover plausible exploit/abuse paths introduced by each feature or behavior change

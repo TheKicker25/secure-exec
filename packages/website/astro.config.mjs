@@ -4,7 +4,7 @@ import tailwind from "@astrojs/tailwind";
 import sitemap from "@astrojs/sitemap";
 
 export default defineConfig({
-  site: "https://secure-exec.dev",
+  site: "https://secureexec.dev",
   output: "static",
   integrations: [react(), tailwind(), sitemap()],
 });
