@@ -24,3 +24,24 @@ export {
 	hasPolyfill,
 	prebundleAllPolyfills,
 } from "./polyfills.js";
+
+// Node execution driver
+export { NodeExecutionDriver } from "./execution-driver.js";
+export type { NodeExecutionDriverOptions } from "./isolate-bootstrap.js";
+
+// Node system driver
+export {
+	createDefaultNetworkAdapter,
+	createNodeDriver,
+	createNodeRuntimeDriverFactory,
+	NodeFileSystem,
+	filterEnv,
+} from "./driver.js";
+export type {
+	NodeDriverOptions,
+	NodeRuntimeDriverFactoryOptions,
+} from "./driver.js";
+
+// Module access filesystem
+export { ModuleAccessFileSystem } from "./module-access.js";
+export type { ModuleAccessOptions } from "./module-access.js";

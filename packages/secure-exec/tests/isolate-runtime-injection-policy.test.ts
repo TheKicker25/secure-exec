@@ -5,19 +5,26 @@ function readSource(relativePath: string): string {
 	return readFileSync(new URL(`../${relativePath}`, import.meta.url), "utf8");
 }
 
+function readNodeSource(relativePath: string): string {
+	return readFileSync(
+		new URL(`../../secure-exec-node/${relativePath}`, import.meta.url),
+		"utf8",
+	);
+}
+
 describe("isolate runtime injection policy", () => {
 	it("avoids template-literal isolate eval snippets in Node runtime loader", () => {
 		// The Node runtime loader spans execution-driver.ts (facade) and its
-		// extracted modules; check the full set of node/ source files.
+		// extracted modules; canonical source is in @secure-exec/node.
 		const nodeModulePaths = [
-			"src/node/execution-driver.ts",
-			"src/node/isolate-bootstrap.ts",
-			"src/node/module-resolver.ts",
-			"src/node/esm-compiler.ts",
-			"src/node/bridge-setup.ts",
-			"src/node/execution-lifecycle.ts",
+			"src/execution-driver.ts",
+			"src/isolate-bootstrap.ts",
+			"src/module-resolver.ts",
+			"src/esm-compiler.ts",
+			"src/bridge-setup.ts",
+			"src/execution-lifecycle.ts",
 		];
-		const loaderSource = nodeModulePaths.map(readSource).join("\n");
+		const loaderSource = nodeModulePaths.map(readNodeSource).join("\n");
 		expect(loaderSource).not.toMatch(/context\.eval\(\s*`/);
 		expect(loaderSource).not.toContain(
 			"${ISOLATE_GLOBAL_EXPOSURE_HELPER_SOURCE}",

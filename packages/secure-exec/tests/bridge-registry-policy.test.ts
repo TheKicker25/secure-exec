@@ -17,6 +17,13 @@ function readCoreSource(relativePath: string): string {
 	);
 }
 
+function readNodeSource(relativePath: string): string {
+	return readFileSync(
+		new URL(`../../secure-exec-node/${relativePath}`, import.meta.url),
+		"utf8",
+	);
+}
+
 describe("bridge registry policy", () => {
 	it("keeps canonical bridge key lists represented in custom-global inventory", () => {
 		const inventoryNames = new Set(
@@ -32,12 +39,13 @@ describe("bridge registry policy", () => {
 
 	it("uses shared host bridge key constants for jail wiring", () => {
 		// Jail wiring spans execution-driver.ts facade and extracted modules.
+		// Canonical source is in @secure-exec/node.
 		const nodeModulePaths = [
-			"src/node/execution-driver.ts",
-			"src/node/bridge-setup.ts",
-			"src/node/esm-compiler.ts",
+			"src/execution-driver.ts",
+			"src/bridge-setup.ts",
+			"src/esm-compiler.ts",
 		];
-		const source = nodeModulePaths.map(readSource).join("\n");
+		const source = nodeModulePaths.map(readNodeSource).join("\n");
 		expect(source).toContain("HOST_BRIDGE_GLOBAL_KEYS.dynamicImport");
 		expect(source).toContain("HOST_BRIDGE_GLOBAL_KEYS.networkFetchRaw");
 		expect(source).toContain("HOST_BRIDGE_GLOBAL_KEYS.childProcessSpawnStart");

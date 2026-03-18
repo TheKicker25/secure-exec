@@ -42,11 +42,11 @@ export {
 	createNodeRuntimeDriverFactory,
 	NodeExecutionDriver,
 	NodeFileSystem,
-} from "./node/driver.js";
+} from "@secure-exec/node";
 export type {
 	ModuleAccessOptions,
 	NodeRuntimeDriverFactoryOptions,
-} from "./node/driver.js";
+} from "@secure-exec/node";
 
 // Re-export Python runtime-driver factories.
 export {

@@ -32,6 +32,46 @@
       "types": "./dist/polyfills.d.ts",
       "import": "./dist/polyfills.js",
       "default": "./dist/polyfills.js"
+    },
+    "./internal/execution-driver": {
+      "types": "./dist/execution-driver.d.ts",
+      "import": "./dist/execution-driver.js",
+      "default": "./dist/execution-driver.js"
+    },
+    "./internal/isolate-bootstrap": {
+      "types": "./dist/isolate-bootstrap.d.ts",
+      "import": "./dist/isolate-bootstrap.js",
+      "default": "./dist/isolate-bootstrap.js"
+    },
+    "./internal/module-resolver": {
+      "types": "./dist/module-resolver.d.ts",
+      "import": "./dist/module-resolver.js",
+      "default": "./dist/module-resolver.js"
+    },
+    "./internal/execution-lifecycle": {
+      "types": "./dist/execution-lifecycle.d.ts",
+      "import": "./dist/execution-lifecycle.js",
+      "default": "./dist/execution-lifecycle.js"
+    },
+    "./internal/esm-compiler": {
+      "types": "./dist/esm-compiler.d.ts",
+      "import": "./dist/esm-compiler.js",
+      "default": "./dist/esm-compiler.js"
+    },
+    "./internal/bridge-setup": {
+      "types": "./dist/bridge-setup.d.ts",
+      "import": "./dist/bridge-setup.js",
+      "default": "./dist/bridge-setup.js"
+    },
+    "./internal/driver": {
+      "types": "./dist/driver.d.ts",
+      "import": "./dist/driver.js",
+      "default": "./dist/driver.js"
+    },
+    "./internal/module-access": {
+      "types": "./dist/module-access.d.ts",
+      "import": "./dist/module-access.js",
+      "default": "./dist/module-access.js"
     }
   },
   "scripts": {
