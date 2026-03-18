@@ -1445,3 +1445,13 @@ PRD: ralph/kernel-hardening (46 stories)
   - PTY write/read after cleanup throws EBADF ("PTY not found") — use this as observable assertion in tests
   - proc.wait() returns a Promise that resolves after the process exits and processTable.markExited runs — safe to chain cleanup
 ---
+
+## 2026-03-18 - US-121
+- Implemented fdWrite to VFS for regular files — the vfsWrite method was already in place (read-modify-write at cursor); added missing test coverage
+- Added 4 tests: write+readback, write at offset with fdPread verification, multiple sequential writes, and write past end of file with zero-fill gap
+- Files changed: packages/kernel/test/kernel-integration.test.ts
+- **Learnings for future iterations:**
+  - fdWrite to VFS was already implemented (vfsWrite private method) but had zero test coverage — always check for existing impl before coding
+  - fdOpen flags: 0=RDONLY, 2=RDWR — use 2 for write tests
+  - vfsWrite does async read-modify-write: reads current VFS content, merges at cursor, writes back — be aware of potential race conditions with concurrent writes
+---
