@@ -272,6 +272,62 @@ describe("shell-terminal", () => {
 
 		expect(harness.screenshotTrimmed()).toBe(screenAfterNoecho);
 	});
+
+	it("waitFor occurrence=2 — waits for second appearance of text", async () => {
+		const driver = new MockShellDriver();
+		const { kernel } = await createTestKernel({ drivers: [driver] });
+		harness = new TerminalHarness(kernel);
+
+		await harness.waitFor("$");
+
+		// Run command: screen shows "$ echo AAA\nAAA\n$ " — "AAA" appears twice
+		await harness.type("echo AAA\n");
+
+		// occurrence=2 should succeed (once in echoed command line, once in output)
+		await harness.waitFor("AAA", 2);
+
+		expect(harness.screenshotTrimmed()).toBe(
+			["$ echo AAA", "AAA", "$ "].join("\n"),
+		);
+	});
+
+	it("waitFor occurrence=3 on text appearing twice — times out", async () => {
+		const driver = new MockShellDriver();
+		const { kernel } = await createTestKernel({ drivers: [driver] });
+		harness = new TerminalHarness(kernel);
+
+		await harness.waitFor("$");
+		await harness.type("echo AAA\n");
+
+		// "AAA" appears only twice — occurrence=3 should timeout
+		await expect(
+			harness.waitFor("AAA", 3, 200),
+		).rejects.toThrow(/timed out/);
+	});
+
+	it("type() on no-output input — resolves via settlement timer", async () => {
+		const driver = new MockShellDriver();
+		const { kernel } = await createTestKernel({ drivers: [driver] });
+		harness = new TerminalHarness(kernel);
+
+		await harness.waitFor("$");
+
+		// Disable echo so typed text produces zero output
+		await harness.type("noecho\n");
+
+		// type() with echo off and no newline → zero output produced.
+		// Settlement timer fires after SETTLE_MS (50ms), resolving the promise.
+		const start = Date.now();
+		await harness.type("silent");
+		const elapsed = Date.now() - start;
+
+		// Should resolve in roughly SETTLE_MS (50ms), not hang or instant
+		expect(elapsed).toBeGreaterThanOrEqual(30);
+		expect(elapsed).toBeLessThan(500);
+
+		// Screen unchanged — "silent" is not visible because echo is off
+		expect(harness.screenshotTrimmed()).toBe(["$ noecho", "$ "].join("\n"));
+	});
 });
 
 // ---------------------------------------------------------------------------
