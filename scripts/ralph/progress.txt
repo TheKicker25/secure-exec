@@ -1348,3 +1348,21 @@ PRD: ralph/kernel-hardening (46 stories)
   - closeActiveHttpServers uses fire-and-forget (no await) since the isolate is being disposed — awaiting could block disposal
   - Tests for timeout-triggered cleanup: create resource, then `while (true) {}` to trigger CPU timeout, verify cleanup happened
 ---
+
+## 2026-03-18 - US-125
+- Verified all fixes already implemented in prior iterations:
+  - logRef/errorRef check `budgetState.outputBytes + bytes > maxOutputBytes` (not `>=` on previous total)
+  - spawnSync defaults to `options.maxBuffer ?? 1024 * 1024` (1MB)
+  - exec() bridge-side has `if (maxBufferExceeded) return;` guard in both stdout/stderr data handlers
+- Tests already exist and pass:
+  - resource-budgets.test.ts: maxOutputBytes budget rejection of single large message (1MB vs 1024 budget), stderr budget, default spawnSync maxBuffer
+  - maxbuffer.test.ts: execSync/spawnSync/execFileSync maxBuffer enforcement
+- All 25 tests pass, typecheck passes
+- Files verified (no changes needed):
+  - packages/secure-exec-node/src/bridge-setup.ts (logRef/errorRef budget check, spawnSync default maxBuffer)
+  - packages/secure-exec-core/src/bridge/child-process.ts (exec maxBufferExceeded early return)
+  - packages/secure-exec/tests/runtime-driver/node/resource-budgets.test.ts
+  - packages/secure-exec/tests/runtime-driver/node/maxbuffer.test.ts
+- **Learnings for future iterations:**
+  - US-125 was already fully implemented but PRD wasn't updated — always verify code state before implementing
+---
