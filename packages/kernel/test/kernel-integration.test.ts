@@ -3034,6 +3034,71 @@ describe("kernel + MockRuntimeDriver integration", () => {
 			child.kill();
 		});
 
+		it("stale foregroundPgid after group leader exit — ^C is no-op, not crash", async () => {
+			const killSignals: number[] = [];
+			const driver = new MockRuntimeDriver(["parent", "leader"], {
+				parent: { neverExit: true },
+				leader: { neverExit: true, killSignals },
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const ki = driver.kernelInterface!;
+			const parent = kernel.spawn("parent", []);
+			const leader = kernel.spawn("leader", []);
+
+			// Put leader in its own process group and set as foreground
+			ki.setpgid(leader.pid, leader.pid);
+			const { masterFd } = ki.openpty(parent.pid);
+			ki.tcsetpgrp(parent.pid, masterFd, leader.pid);
+
+			// Kill the group leader — foregroundPgid now points to a dead group
+			leader.kill();
+			await leader.wait();
+
+			// ^C with stale foregroundPgid should not crash — protected by try/catch
+			expect(() =>
+				ki.fdWrite(parent.pid, masterFd, new Uint8Array([0x03])),
+			).not.toThrow();
+
+			parent.kill();
+		});
+
+		it("stale foregroundPgid recovery — set new valid group after leader exit", async () => {
+			const killSignalsA: number[] = [];
+			const killSignalsB: number[] = [];
+			const driver = new MockRuntimeDriver(["parent", "leaderA", "leaderB"], {
+				parent: { neverExit: true },
+				leaderA: { neverExit: true, killSignals: killSignalsA },
+				leaderB: { neverExit: true, killSignals: killSignalsB },
+			});
+			({ kernel } = await createTestKernel({ drivers: [driver] }));
+
+			const ki = driver.kernelInterface!;
+			const parent = kernel.spawn("parent", []);
+			const leaderA = kernel.spawn("leaderA", []);
+			const leaderB = kernel.spawn("leaderB", []);
+
+			// Set up groups
+			ki.setpgid(leaderA.pid, leaderA.pid);
+			ki.setpgid(leaderB.pid, leaderB.pid);
+			const { masterFd } = ki.openpty(parent.pid);
+			ki.tcsetpgrp(parent.pid, masterFd, leaderA.pid);
+
+			// Kill group A leader — foregroundPgid is stale
+			leaderA.kill();
+			await leaderA.wait();
+
+			// Recover by setting foreground to group B
+			ki.tcsetpgrp(parent.pid, masterFd, leaderB.pid);
+			expect(ki.tcgetpgrp(parent.pid, masterFd)).toBe(leaderB.pid);
+
+			// ^C should now reach group B
+			ki.fdWrite(parent.pid, masterFd, new Uint8Array([0x03]));
+			expect(killSignalsB).toContain(2);
+
+			parent.kill();
+		});
+
 		it("tcgetattr returns a copy — mutation does not affect PTY", async () => {
 			const driver = new MockRuntimeDriver(["proc"], {
 				proc: { neverExit: true },
