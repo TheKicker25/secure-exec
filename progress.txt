@@ -1544,3 +1544,16 @@ PRD: ralph/kernel-hardening (46 stories)
   - Bridge fs has both `lstatSync` (no follow) and `readlinkSync` available for symlink resolution
   - The `realpath` async and `realpathSync.native` both delegate to `realpathSync`, so fixing one fixes all variants
 ---
+
+## 2026-03-18 - US-131
+- What was implemented
+  - Added 16MB cap to WriteStream._chunks buffering — emits error event, sets destroyed/errored, returns false from write() when exceeded
+  - Added MAX_GLOB_DEPTH=100 recursion depth limit to _globCollect — stops traversal beyond 100 levels to prevent stack overflow
+- Files changed
+  - `packages/secure-exec-core/src/bridge/fs.ts` — added MAX_WRITE_STREAM_BYTES (16MB), buffer check in write(); added MAX_GLOB_DEPTH (100), depth parameter to walk()
+  - `packages/secure-exec/tests/runtime-driver/node/index.test.ts` — added 2 tests: WriteStream buffer cap error emission, globSync depth limit enforcement
+- **Learnings for future iterations:**
+  - Bridge code events emitted via Promise.resolve().then() are async — tests checking event state synchronously after write() should check synchronous state (ws.errored, ws.destroyed) rather than async event handlers
+  - WriteStream cap must be testable within V8 isolate memory limits — 16MB is practical; 256MB would exceed typical isolate heap
+  - _globCollect walk() needs explicit depth parameter threading — JavaScript doesn't have built-in recursion depth limits
+---
