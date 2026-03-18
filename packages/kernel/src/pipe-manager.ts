@@ -86,6 +86,7 @@ export class PipeManager {
 		const state = this.pipes.get(ref.pipeId);
 		if (!state) throw new KernelError("EBADF", "pipe not found");
 		if (state.closed.write) throw new KernelError("EPIPE", "write end closed");
+		if (state.closed.read) throw new KernelError("EPIPE", "read end closed");
 
 		// If readers are waiting, deliver directly (no buffering)
 		if (state.readWaiters.length > 0) {
