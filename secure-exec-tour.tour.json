@@ -42,7 +42,7 @@
     {
       "id": "core-package",
       "title": "Core Types & Bridge",
-      "description": "The core package (secure-exec-core) is the heart of the system. It defines the Runtime and PythonRuntime API facades, the RuntimeDriver abstraction, SystemDriver interface, and all shared types. Most importantly, it contains the bridge — code injected into isolates at startup that implements Node.js API facades (fs, net, child_process, os, process) and communicates with the host across the isolate boundary.",
+      "description": "The core package defines Runtime API facades, the RuntimeDriver abstraction, and all shared types. It also contains the bridge — code injected into isolates at startup that implements Node.js API facades (fs, net, child_process, os, process).",
       "focusDirectory": "packages/secure-exec-core",
       "colorMode": "fileTypes",
       "highlightLayers": [
@@ -83,7 +83,7 @@
     {
       "id": "node-driver",
       "title": "Node Execution Driver",
-      "description": "The Node driver package owns the V8 isolate lifecycle. NodeExecutionDriver creates isolates, compiles ESM/CJS code, and bridges host capabilities (filesystem, network, child processes) into the sandboxed environment via isolated-vm references. ModuleAccessFileSystem provides a read-only node_modules overlay that blocks native .node addons and symlink escapes. The createNodeDriver factory wires up the deny-by-default SystemDriver.",
+      "description": "This package owns the V8 isolate lifecycle — creating isolates, compiling ESM/CJS, and bridging host capabilities into the sandbox. ModuleAccessFileSystem provides a read-only node_modules overlay that blocks native addons and symlink escapes.",
       "focusDirectory": "packages/secure-exec-node",
       "colorMode": "fileTypes",
       "highlightLayers": [
@@ -127,7 +127,7 @@
     {
       "id": "permissions-model",
       "title": "Deny-by-Default Permissions",
-      "description": "Security is central to secure-exec. The permission model is deny-by-default: filesystem reads/writes, network access, child process spawning, and environment variable access are all blocked unless explicitly granted. Permissions are configured through the SystemDriver interface and enforced by wrapper functions in the shared utilities. The behavioral contracts in .agent/contracts/ are the authoritative source of truth for how permissions must behave.",
+      "description": "Everything is blocked unless explicitly granted — filesystem, network, child processes, and env vars. Permissions are configured via SystemDriver and enforced by shared wrapper functions. Behavioral contracts in .agent/contracts/ are the authoritative spec.",
       "focusDirectory": "packages/secure-exec-core/src/shared",
       "colorMode": "fileTypes",
       "highlightLayers": [
@@ -156,7 +156,7 @@
     {
       "id": "barrel-export",
       "title": "Public API Surface",
-      "description": "The secure-exec package is the main barrel export that users install. It re-exports everything from core, node, browser, and python packages through subpath exports: the default import gives you Node.js APIs, ./browser gives browser APIs, and ./python gives Python APIs. This is also where the integration tests live — including the compatibility project matrix that runs real-world fixtures in both host Node and secure-exec to verify parity.",
+      "description": "The main package users install. It re-exports from core, node, browser, and python via subpath exports. Integration tests live here too, including the compatibility matrix that compares real-world fixtures against host Node.",
       "focusDirectory": "packages/secure-exec",
       "colorMode": "fileTypes",
       "highlightLayers": [
@@ -186,7 +186,7 @@
     {
       "id": "testing-strategy",
       "title": "Testing Architecture",
-      "description": "Tests are organized into three tiers. Shared test suites (test-suite/) define domain-specific behavior tests (runtime, filesystem, network, child processes) that run against all environments — node, browser, and python. Runtime-driver tests cover single-driver behavior like Node memory limits or Python warm state. The project matrix runs black-box fixture projects in both host Node and secure-exec, comparing normalized stdout, stderr, and exit codes to ensure parity.",
+      "description": "Three tiers: shared suites run against all environments, driver-specific tests cover per-platform behavior, and the project matrix compares black-box fixtures between host Node and secure-exec for parity.",
       "focusDirectory": "packages/secure-exec/tests",
       "colorMode": "fileTypes",
       "highlightLayers": [
@@ -225,7 +225,7 @@
     {
       "id": "experimental-runtimes",
       "title": "Experimental: Browser, Python & WASM",
-      "description": "Beyond Node.js, secure-exec has experimental runtime drivers. The browser package uses Web Workers for isolation with in-memory or OPFS filesystems. The Python package wraps Pyodide behind the same RuntimeDriver interface. The wasmvm directory contains a Rust-based WASM runtime compiled to wasm32-wasip1 — a kernel, VFS, and process table designed to run in any WASM host. These are active R&D surfaces.",
+      "description": "Experimental runtimes: Browser (Web Workers), Python (Pyodide), and a Rust-based WASM VM compiled to wasm32-wasip1. All slot in behind the same RuntimeDriver interface.",
       "focusDirectory": "",
       "colorMode": "fileTypes",
       "highlightLayers": [
@@ -274,7 +274,7 @@
     {
       "id": "docs-and-examples",
       "title": "Documentation & Examples",
-      "description": "Public docs at secureexec.dev are built with Mintlify and cover quickstart, API reference, features, use cases, and comparisons. Internal docs (docs-internal/) hold architecture specs, the glossary, friction log, and security threat models. The examples/ directory contains real-world projects — AI SDK integration, plugin systems, code interpreters — that double as compatibility test fixtures. The website and README are kept in strict 1:1 sync.",
+      "description": "Public docs (Mintlify) at secureexec.dev, internal design docs with architecture specs and threat models, and real-world example projects that double as compatibility test fixtures.",
       "focusDirectory": "",
       "colorMode": "fileTypes",
       "highlightLayers": [
