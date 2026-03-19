@@ -1,0 +1,331 @@
+{
+  "id": "secure-exec-onboarding",
+  "title": "Secure Exec Architecture Tour",
+  "description": "A guided walkthrough of the secure-exec monorepo — lightweight, infrastructure-free code execution using V8 isolates. Covers the core runtime, bridge layer, execution drivers, permissions model, testing strategy, and documentation.",
+  "version": "1.0.0",
+  "steps": [
+    {
+      "id": "overview",
+      "title": "Welcome to Secure Exec",
+      "description": "Secure Exec is a lightweight library for sandboxed Node.js and Python code execution without containers, VMs, or Docker. It uses V8 isolates — the same isolation behind Cloudflare Workers and browser tabs — to sandbox code at the process level. The monorepo is orchestrated with Turbo and pnpm, with packages split by concern: core types and bridge, platform-specific drivers, a website, and experimental runtimes.",
+      "focusDirectory": "",
+      "colorMode": "fileTypes",
+      "highlightLayers": [
+        {
+          "id": "monorepo-config",
+          "name": "Monorepo Configuration",
+          "color": "#38BDF8",
+          "items": [
+            { "path": "turbo.json", "type": "file" },
+            { "path": "pnpm-workspace.yaml", "type": "file" },
+            { "path": "package.json", "type": "file" },
+            { "path": "CLAUDE.md", "type": "file" }
+          ],
+          "opacity": 0.7,
+          "renderStrategy": "border"
+        },
+        {
+          "id": "main-areas",
+          "name": "Key Directories",
+          "color": "#CC0000",
+          "items": [
+            { "path": "packages", "type": "directory" },
+            { "path": "docs", "type": "directory" },
+            { "path": "examples", "type": "directory" },
+            { "path": "wasmvm", "type": "directory" }
+          ],
+          "opacity": 0.5,
+          "renderStrategy": "border"
+        }
+      ]
+    },
+    {
+      "id": "core-package",
+      "title": "Core Types & Bridge",
+      "description": "The core package (secure-exec-core) is the heart of the system. It defines the Runtime and PythonRuntime API facades, the RuntimeDriver abstraction, SystemDriver interface, and all shared types. Most importantly, it contains the bridge — code injected into isolates at startup that implements Node.js API facades (fs, net, child_process, os, process) and communicates with the host across the isolate boundary.",
+      "focusDirectory": "packages/secure-exec-core",
+      "colorMode": "fileTypes",
+      "highlightLayers": [
+        {
+          "id": "runtime-api",
+          "name": "Runtime API",
+          "color": "#38BDF8",
+          "items": [
+            { "path": "packages/secure-exec-core/src/runtime.ts", "type": "file" },
+            { "path": "packages/secure-exec-core/src/python-runtime.ts", "type": "file" },
+            { "path": "packages/secure-exec-core/src/types.ts", "type": "file" }
+          ],
+          "opacity": 0.8,
+          "renderStrategy": "border"
+        },
+        {
+          "id": "bridge-layer",
+          "name": "Bridge (Isolate-Side APIs)",
+          "color": "#CC0000",
+          "items": [
+            { "path": "packages/secure-exec-core/src/bridge", "type": "directory" }
+          ],
+          "opacity": 0.7,
+          "renderStrategy": "border"
+        },
+        {
+          "id": "shared-utils",
+          "name": "Shared Utilities",
+          "color": "#22C55E",
+          "items": [
+            { "path": "packages/secure-exec-core/src/shared", "type": "directory" }
+          ],
+          "opacity": 0.6,
+          "renderStrategy": "border"
+        }
+      ]
+    },
+    {
+      "id": "node-driver",
+      "title": "Node Execution Driver",
+      "description": "The Node driver package owns the V8 isolate lifecycle. NodeExecutionDriver creates isolates, compiles ESM/CJS code, and bridges host capabilities (filesystem, network, child processes) into the sandboxed environment via isolated-vm references. ModuleAccessFileSystem provides a read-only node_modules overlay that blocks native .node addons and symlink escapes. The createNodeDriver factory wires up the deny-by-default SystemDriver.",
+      "focusDirectory": "packages/secure-exec-node",
+      "colorMode": "fileTypes",
+      "highlightLayers": [
+        {
+          "id": "execution-core",
+          "name": "Isolate Execution",
+          "color": "#38BDF8",
+          "items": [
+            { "path": "packages/secure-exec-node/src/execution-driver.ts", "type": "file" },
+            { "path": "packages/secure-exec-node/src/isolate.ts", "type": "file" },
+            { "path": "packages/secure-exec-node/src/execution-lifecycle.ts", "type": "file" }
+          ],
+          "opacity": 0.8,
+          "renderStrategy": "border"
+        },
+        {
+          "id": "driver-factories",
+          "name": "Driver Factories",
+          "color": "#CC0000",
+          "items": [
+            { "path": "packages/secure-exec-node/src/driver.ts", "type": "file" },
+            { "path": "packages/secure-exec-node/src/bridge-setup.ts", "type": "file" }
+          ],
+          "opacity": 0.7,
+          "renderStrategy": "border"
+        },
+        {
+          "id": "module-system",
+          "name": "Module Loading & Resolution",
+          "color": "#A855F7",
+          "items": [
+            { "path": "packages/secure-exec-node/src/module-resolver.ts", "type": "file" },
+            { "path": "packages/secure-exec-node/src/module-access.ts", "type": "file" },
+            { "path": "packages/secure-exec-node/src/esm-compiler.ts", "type": "file" }
+          ],
+          "opacity": 0.7,
+          "renderStrategy": "border"
+        }
+      ]
+    },
+    {
+      "id": "permissions-model",
+      "title": "Deny-by-Default Permissions",
+      "description": "Security is central to secure-exec. The permission model is deny-by-default: filesystem reads/writes, network access, child process spawning, and environment variable access are all blocked unless explicitly granted. Permissions are configured through the SystemDriver interface and enforced by wrapper functions in the shared utilities. The behavioral contracts in .agent/contracts/ are the authoritative source of truth for how permissions must behave.",
+      "focusDirectory": "packages/secure-exec-core/src/shared",
+      "colorMode": "fileTypes",
+      "highlightLayers": [
+        {
+          "id": "permission-impl",
+          "name": "Permission Implementation",
+          "color": "#CC0000",
+          "items": [
+            { "path": "packages/secure-exec-core/src/shared/permissions.ts", "type": "file" }
+          ],
+          "opacity": 0.9,
+          "renderStrategy": "border"
+        },
+        {
+          "id": "contracts",
+          "name": "Behavioral Contracts",
+          "color": "#F59E0B",
+          "items": [
+            { "path": ".agent/contracts", "type": "directory" }
+          ],
+          "opacity": 0.6,
+          "renderStrategy": "border"
+        }
+      ]
+    },
+    {
+      "id": "barrel-export",
+      "title": "Public API Surface",
+      "description": "The secure-exec package is the main barrel export that users install. It re-exports everything from core, node, browser, and python packages through subpath exports: the default import gives you Node.js APIs, ./browser gives browser APIs, and ./python gives Python APIs. This is also where the integration tests live — including the compatibility project matrix that runs real-world fixtures in both host Node and secure-exec to verify parity.",
+      "focusDirectory": "packages/secure-exec",
+      "colorMode": "fileTypes",
+      "highlightLayers": [
+        {
+          "id": "public-entry",
+          "name": "Entry Point",
+          "color": "#38BDF8",
+          "items": [
+            { "path": "packages/secure-exec/src/index.ts", "type": "file" },
+            { "path": "packages/secure-exec/package.json", "type": "file" }
+          ],
+          "opacity": 0.8,
+          "renderStrategy": "border"
+        },
+        {
+          "id": "test-suites",
+          "name": "Test Infrastructure",
+          "color": "#22C55E",
+          "items": [
+            { "path": "packages/secure-exec/tests", "type": "directory" }
+          ],
+          "opacity": 0.6,
+          "renderStrategy": "border"
+        }
+      ]
+    },
+    {
+      "id": "testing-strategy",
+      "title": "Testing Architecture",
+      "description": "Tests are organized into three tiers. Shared test suites (test-suite/) define domain-specific behavior tests (runtime, filesystem, network, child processes) that run against all environments — node, browser, and python. Runtime-driver tests cover single-driver behavior like Node memory limits or Python warm state. The project matrix runs black-box fixture projects in both host Node and secure-exec, comparing normalized stdout, stderr, and exit codes to ensure parity.",
+      "focusDirectory": "packages/secure-exec/tests",
+      "colorMode": "fileTypes",
+      "highlightLayers": [
+        {
+          "id": "shared-suites",
+          "name": "Shared Test Suites",
+          "color": "#38BDF8",
+          "items": [
+            { "path": "packages/secure-exec/tests/test-suite", "type": "directory" }
+          ],
+          "opacity": 0.7,
+          "renderStrategy": "border"
+        },
+        {
+          "id": "driver-tests",
+          "name": "Driver-Specific Tests",
+          "color": "#A855F7",
+          "items": [
+            { "path": "packages/secure-exec/tests/runtime-driver", "type": "directory" }
+          ],
+          "opacity": 0.7,
+          "renderStrategy": "border"
+        },
+        {
+          "id": "compat-matrix",
+          "name": "Compatibility Matrix",
+          "color": "#CC0000",
+          "items": [
+            { "path": "packages/secure-exec/tests/projects", "type": "directory" }
+          ],
+          "opacity": 0.6,
+          "renderStrategy": "border"
+        }
+      ]
+    },
+    {
+      "id": "experimental-runtimes",
+      "title": "Experimental: Browser, Python & WASM",
+      "description": "Beyond Node.js, secure-exec has experimental runtime drivers. The browser package uses Web Workers for isolation with in-memory or OPFS filesystems. The Python package wraps Pyodide behind the same RuntimeDriver interface. The wasmvm directory contains a Rust-based WASM runtime compiled to wasm32-wasip1 — a kernel, VFS, and process table designed to run in any WASM host. These are active R&D surfaces.",
+      "focusDirectory": "",
+      "colorMode": "fileTypes",
+      "highlightLayers": [
+        {
+          "id": "browser-runtime",
+          "name": "Browser Runtime",
+          "color": "#38BDF8",
+          "items": [
+            { "path": "packages/secure-exec-browser", "type": "directory" }
+          ],
+          "opacity": 0.7,
+          "renderStrategy": "border"
+        },
+        {
+          "id": "python-runtime",
+          "name": "Python Runtime",
+          "color": "#22C55E",
+          "items": [
+            { "path": "packages/secure-exec-python", "type": "directory" }
+          ],
+          "opacity": 0.7,
+          "renderStrategy": "border"
+        },
+        {
+          "id": "wasm-runtime",
+          "name": "WASM VM (Rust)",
+          "color": "#CC0000",
+          "items": [
+            { "path": "wasmvm", "type": "directory" }
+          ],
+          "opacity": 0.7,
+          "renderStrategy": "border"
+        },
+        {
+          "id": "kernel-pkg",
+          "name": "Virtual Kernel",
+          "color": "#F59E0B",
+          "items": [
+            { "path": "packages/kernel", "type": "directory" }
+          ],
+          "opacity": 0.6,
+          "renderStrategy": "border"
+        }
+      ]
+    },
+    {
+      "id": "docs-and-examples",
+      "title": "Documentation & Examples",
+      "description": "Public docs at secureexec.dev are built with Mintlify and cover quickstart, API reference, features, use cases, and comparisons. Internal docs (docs-internal/) hold architecture specs, the glossary, friction log, and security threat models. The examples/ directory contains real-world projects — AI SDK integration, plugin systems, code interpreters — that double as compatibility test fixtures. The website and README are kept in strict 1:1 sync.",
+      "focusDirectory": "",
+      "colorMode": "fileTypes",
+      "highlightLayers": [
+        {
+          "id": "public-docs",
+          "name": "Public Documentation",
+          "color": "#38BDF8",
+          "items": [
+            { "path": "docs", "type": "directory" }
+          ],
+          "opacity": 0.7,
+          "renderStrategy": "border"
+        },
+        {
+          "id": "internal-docs",
+          "name": "Internal Design Docs",
+          "color": "#F59E0B",
+          "items": [
+            { "path": "docs-internal", "type": "directory" }
+          ],
+          "opacity": 0.7,
+          "renderStrategy": "border"
+        },
+        {
+          "id": "examples-dir",
+          "name": "Example Projects",
+          "color": "#22C55E",
+          "items": [
+            { "path": "examples", "type": "directory" }
+          ],
+          "opacity": 0.7,
+          "renderStrategy": "border"
+        },
+        {
+          "id": "website-dir",
+          "name": "Website (Astro)",
+          "color": "#A855F7",
+          "items": [
+            { "path": "packages/website", "type": "directory" }
+          ],
+          "opacity": 0.6,
+          "renderStrategy": "border"
+        }
+      ]
+    },
+    {
+      "id": "full-picture",
+      "title": "The Full Picture",
+      "description": "You've now seen how secure-exec is built: a core package defining types and the bridge layer, platform-specific execution drivers (Node, Browser, Python, WASM), a deny-by-default permission model governed by behavioral contracts, a three-tier testing strategy ensuring parity with host Node.js, and comprehensive documentation. The architecture is designed for modularity — new runtimes slot in behind the same RuntimeDriver interface. Explore the codebase and check the contracts in .agent/contracts/ for the authoritative specification.",
+      "focusDirectory": "",
+      "colorMode": "fileTypes"
+    }
+  ]
+}
